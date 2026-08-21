@@ -1,11 +1,15 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 
 /* ---------------------------------- utils -------------------------------- */
 const today = () => new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
 const money = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
-const dshow = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+const dshow = (d) => {
+  if (!d) return '—';
+  const dt = new Date(d + 'T00:00:00');
+  return isNaN(dt) ? String(d) : dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+};
 const MODES = ['cash', 'upi', 'card', 'bank', 'credit'];
 const DENOMS = [500, 200, 100, 50, 20, 10, 5, 2, 1];
 const CATS = ['Transport', 'Salary', 'Rent', 'Electricity', 'Loading', 'Packing', 'Maintenance', 'Petty cash', 'Other'];
@@ -39,6 +43,30 @@ const post = async (action, payload) => {
   if (!r.ok) throw new Error(j.error || 'Something went wrong');
   return j;
 };
+
+/* One screen failing must never take the whole app down. */
+class Guard extends React.Component {
+  constructor(p) { super(p); this.state = { err: null }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  render() {
+    if (this.state.err) {
+      return (
+        <div className="card">
+          <span className="lbl">This screen could not load</span>
+          <p className="empty" style={{ padding: '10px 0' }}>
+            The rest of the app is fine — tap another tab to carry on.
+          </p>
+          <p className="k" style={{ fontFamily: 'var(--mono)', fontSize: 12, wordBreak: 'break-word' }}>
+            {String(this.state.err?.message || this.state.err)}
+          </p>
+          <button className="btn ghost" style={{ marginTop: 12 }}
+            onClick={() => this.setState({ err: null })}>Try again</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 /* ==================================== app ================================= */
 export default function Page() {
@@ -120,11 +148,13 @@ export default function Page() {
       </header>
 
       <div className="wrap">
-        {tab === 'home' && <Home {...c} />}
-        {tab === 'entry' && <Entry {...c} />}
-        {tab === 'close' && <DayClose key={date + (closing?.status || '')} {...c} />}
-        {tab === 'books' && <Books {...c} />}
-        {tab === 'reports' && <Reports {...c} />}
+        <Guard key={tab}>
+          {tab === 'home' && <Home {...c} />}
+          {tab === 'entry' && <Entry {...c} />}
+          {tab === 'close' && <DayClose key={date + (closing?.status || '')} {...c} />}
+          {tab === 'books' && <Books {...c} />}
+          {tab === 'reports' && <Reports {...c} />}
+        </Guard>
       </div>
 
       <nav className="nav">
