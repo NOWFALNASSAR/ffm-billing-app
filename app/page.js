@@ -166,7 +166,7 @@ export default function Page() {
         ))}
       </nav>
 
-      {sheet && <Sheets c={c} sheet={sheet} close={() => setSheet(null)} />}
+      {sheet && <Guard key={'sheet-' + sheet}><Sheets c={c} sheet={sheet} close={() => setSheet(null)} /></Guard>}
       {toast && <div className="toast">{toast}</div>}
     </>
   );
@@ -527,10 +527,12 @@ function TxnForm({ c, type, close }) {
 
 /* ------------------------------ setup entries ----------------------------- */
 function SetupForm({ c, close }) {
-  const start = c.settings.start_date;
+  const start = c.settings.start_date || '2026-08-17';
   const [type, setType] = useState('opening_purchase');
   const [date, setD] = useState(() => {
-    const d = new Date(start + 'T00:00:00'); d.setDate(d.getDate() - 1);
+    const d = new Date(start + 'T00:00:00');
+    if (isNaN(d.getTime())) return '2026-08-16';
+    d.setDate(d.getDate() - 1);
     return d.toISOString().slice(0, 10);
   });
   const [partyId, setPartyId] = useState('');
@@ -1116,6 +1118,7 @@ function Reports(c) {
   const from = useMemo(() => {
     const d = new Date(c.date + 'T00:00:00');
     if (range === 'day') return c.date;
+    if (isNaN(d.getTime())) return today();
     if (range === 'week') { d.setDate(d.getDate() - 6); return d.toISOString().slice(0, 10); }
     d.setDate(1); return d.toISOString().slice(0, 10);
   }, [range, c.date]);
