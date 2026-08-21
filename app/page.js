@@ -10,7 +10,7 @@ const dshow = (d) => {
   const dt = new Date(d + 'T00:00:00');
   return isNaN(dt) ? String(d) : dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
 };
-const MODES = ['cash', 'upi', 'card', 'bank', 'credit'];
+const MODES = ['cash', 'credit'];
 const DENOMS = [500, 200, 100, 50, 20, 10, 5, 2, 1];
 const CATS = ['Transport', 'Salary', 'Rent', 'Electricity', 'Loading', 'Packing', 'Maintenance', 'Petty cash', 'Other'];
 
@@ -254,15 +254,16 @@ function Home(c) {
   return (
     <>
       <div className="card">
-        <span className="lbl">Cash in hand · {dshow(c.date)}</span>
-        <div className="big" style={{ color: 'var(--mango)' }}>{money(c.expectedCash)}</div>
-        <div className="rowb" style={{ marginTop: 10 }}><span className="k">Opening</span><span className="v">{money(c.openingCash)}</span></div>
+        <span className="lbl">Money in hand · {dshow(c.date)}</span>
+        <div className="big" style={{ color: 'var(--mango)' }}>{money(c.expectedCash + c.bankTotal)}</div>
+        <div className="k" style={{ marginTop: 4 }}>cash {money(c.expectedCash)} + bank {money(c.bankTotal)}</div>
+        <div className="rowb" style={{ marginTop: 10 }}><span className="k">Opening cash</span><span className="v">{money(c.openingCash)}</span></div>
         <Row label="Cash in" value={c.cashIn} type="cash_in_all" colour="var(--leaf)" />
         <Row label="Cash out" value={c.cashOut} type="cash_out_all" colour="var(--beet)" />
         <div className="rowb"><span className="k">Of which sent to bank</span><span className="v">{money(c.bankedToday)}</span></div>
+        <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Cash in drawer now</b>
+          <b className="v" style={{ fontSize: 19 }}>{money(c.expectedCash)}</b></div>
         <div className="rowb"><span className="k">In bank so far</span><span className="v">{money(c.bankTotal)}</span></div>
-        <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Cash + bank</b>
-          <b className="v" style={{ fontSize: 19 }}>{money(c.expectedCash + c.bankTotal)}</b></div>
       </div>
 
       <div className="card">
@@ -1183,7 +1184,10 @@ function Reports(c) {
           <b className="v" style={{ color: gp - exp - waste >= 0 ? 'var(--leaf)' : 'var(--beet)' }}>{money(gp - exp - waste)}</b></div>
         <div className="rowb"><span className="k">Purchases</span><span className="v">{money(purch)}</span></div>
         <div className="rowb"><span className="k">Purchase returns</span><span className="v">{money(returns)}</span></div>
-        <div className="rowb"><span className="k">Cash in hand</span><span className="v">{money(c.expectedCash)}</span></div>
+        <div className="rowb"><span className="k">Cash in drawer</span><span className="v">{money(c.expectedCash)}</span></div>
+        <div className="rowb"><span className="k">In bank</span><span className="v">{money(c.bankTotal)}</span></div>
+        <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Money in hand — cash + bank</b>
+          <b className="v" style={{ color: 'var(--leaf)' }}>{money(c.expectedCash + c.bankTotal)}</b></div>
         <div className="rowb"><span className="k">Sent to bank in this period</span><span className="v">{money(banked)}</span></div>
         <div className="rowb"><span className="k">Supplier payable</span><span className="v">{money(payable)}</span></div>
         <div className="rowb"><span className="k">Customer receivable</span><span className="v">{money(receivable)}</span></div>
@@ -1243,7 +1247,7 @@ function Investment({ c }) {
   const totalIntoShop = openingPurchase + renovation;
   const stockList = c.stock || [];
   const stockValue = stockList[0] ? Number(stockList[0].value) : 0;
-  const savings = c.expectedCash;
+  const savings = c.expectedCash + (c.bankTotal || 0);
 
   if (setup.length === 0 && !stockValue) {
     return (
@@ -1266,11 +1270,11 @@ function Investment({ c }) {
         <b className="v">{money(totalIntoShop)}</b></div>
       <div className="rowb"><span className="k">Stock value{stockList[0] ? ' · ' + dshow(stockList[0].date) : ''}</span>
         <span className="v">{money(stockValue)}</span></div>
-      <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Cash in hand</b>
+      <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Cash + bank in hand</b>
         <b className="v" style={{ color: 'var(--leaf)' }}>{money(savings)}</b></div>
       <p className="empty" style={{ fontSize: 12, padding: '10px 0 0' }}>
         Money put in {money(invested + loans)} · what you hold today: stock {money(stockValue)} plus
-        cash {money(savings)}.
+        cash and bank {money(savings)}.
       </p>
     </div>
   );
