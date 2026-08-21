@@ -1,0 +1,6 @@
+date,type,party,amount,mode,category,reference
+2026-08-14,sale,Walk-in customer,42000,cash,,
+2026-08-14,sale,Walk-in customer,15500,upi,,
+2026-08-14,purchase,ABC Vegetables,38000,credit,,BILL-221
+2026-08-14,expense,,1200,cash,Transport,
+2026-08-15,sale,Walk-in customer,51000,cash,,
