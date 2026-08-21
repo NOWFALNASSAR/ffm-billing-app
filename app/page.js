@@ -1124,6 +1124,8 @@ function Reports(c) {
   const s = (type) => rows.filter((t) => t.type === type).reduce((a, b) => a + Number(b.amount), 0);
   const sales = s('sale'), purch = s('purchase'), exp = s('expense'), waste = s('wastage');
   const purchRet = s('purchase_return');
+  const banked = s('bank_deposit');
+  const returns = purchRet;
   const gp = sales * (c.gpRate / 100);
   const payable = c.parties.filter((p) => p.kind === 'supplier').reduce((a, p) => a + outstanding(c, p.id), 0);
   const receivable = c.parties.filter((p) => p.kind === 'customer').reduce((a, p) => a + outstanding(c, p.id), 0);
