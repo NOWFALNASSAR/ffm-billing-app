@@ -177,7 +177,7 @@ export async function POST(req) {
 
       /* ------------------------------ day closing -------------------------- */
       case 'close': {
-        const { date, opening, expected, actual, denoms, deposit, adjust } = payload;
+        const { date, opening, expected, actual, denoms, deposit, adjust, bank } = payload;
         const dep = Number(deposit) || 0;
         if (dep > 0) {
           await insertEntry(me, { type: 'bank_deposit', date, amount: dep, mode: 'cash', remarks: 'Day end deposit' });
@@ -193,12 +193,13 @@ export async function POST(req) {
           });
         }
         await sql`
-          INSERT INTO closings (biz_date, opening, expected, actual, denoms, status, closed_by)
-          VALUES (${date}, ${Number(opening)}, ${Number(expected) - dep}, ${Number(actual)},
-                  ${JSON.stringify(denoms || {})}, 'CLOSED', ${me.name})
+          INSERT INTO closings (biz_date, opening, expected, actual, bank_balance, denoms, status, closed_by)
+          VALUES (${date}, ${Number(opening)}, ${Number(expected)}, ${Number(actual)},
+                  ${Number(bank) || 0}, ${JSON.stringify(denoms || {})}, 'CLOSED', ${me.name})
           ON CONFLICT (biz_date) DO UPDATE SET
             opening = EXCLUDED.opening, expected = EXCLUDED.expected, actual = EXCLUDED.actual,
-            denoms = EXCLUDED.denoms, status = 'CLOSED', closed_by = EXCLUDED.closed_by, closed_at = now()`;
+            bank_balance = EXCLUDED.bank_balance, denoms = EXCLUDED.denoms,
+            status = 'CLOSED', closed_by = EXCLUDED.closed_by, closed_at = now()`;
         await log(me.name, `Closed ${date}: cash ${money(actual)}, banked ${money(dep)}` +
           (adj ? `, ${adj > 0 ? 'excess' : 'shortage'} ${money(Math.abs(adj))}` : ''));
         return ok();
