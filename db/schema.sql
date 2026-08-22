@@ -1,10 +1,10 @@
 -- Fresh Control — run this ONCE in the Neon SQL Editor, then never again.
--- Seed PINs: Admin 1111, Manager 2222, Billing 3333 — change them after first login.
+-- Seed PINs: Owner 1111, Manager 2222, Cashier 3333 — change them after first login.
 
 CREATE TABLE IF NOT EXISTS users (
   id         serial PRIMARY KEY,
   name       text NOT NULL,
-  role       text NOT NULL CHECK (role IN ('ADMIN','MANAGER','BILLING')),
+  role       text NOT NULL CHECK (role IN ('OWNER','MANAGER','CASHIER')),
   pin_hash   text NOT NULL,
   is_active  boolean NOT NULL DEFAULT true
 );
@@ -87,7 +87,7 @@ INSERT INTO parties (kind, name) VALUES ('customer', 'Walk-in customer')
   ON CONFLICT DO NOTHING;
 
 INSERT INTO users (name, role, pin_hash) VALUES
-  ('Admin',   'ADMIN',   '4896c6387dc4ce5047ce7c3ab04b1c3c:44c345ec013cf037af96883ce401d42ee9ed10dfe56ff50b2352ab3df79692a6'),
+  ('Nowfal',  'OWNER',   '4896c6387dc4ce5047ce7c3ab04b1c3c:44c345ec013cf037af96883ce401d42ee9ed10dfe56ff50b2352ab3df79692a6'),
   ('Manager', 'MANAGER', 'ec6f0da4b142ab8a10568b996cbcbdc7:b75b49ef2876c121d8792ffc4fed19a76b6106e8d87a282619c21efd49691098'),
-  ('Billing', 'BILLING', 'bb9eb2f558a24e506493b98efd800239:e4836c7bed5367bf095a589b3c967f6457f0a8aef1202cf01b7cab0d020da2a6')
+  ('Cashier', 'CASHIER', 'bb9eb2f558a24e506493b98efd800239:e4836c7bed5367bf095a589b3c967f6457f0a8aef1202cf01b7cab0d020da2a6')
 ON CONFLICT DO NOTHING;
