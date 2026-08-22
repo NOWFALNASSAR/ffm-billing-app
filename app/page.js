@@ -24,6 +24,10 @@ const LABEL = {
   loan_in: 'Loan received', loan_repay: 'Loan repaid',
 };
 
+// Cash moved between drawer and bank — internal, never a gain or a loss.
+const bankMove = (t) => t.type === 'bank_deposit' ? Number(t.amount)
+  : t.type === 'bank_withdraw' ? -Number(t.amount) : 0;
+
 // Cash drawer effect. Deposits leave the drawer, withdrawals come back to it.
 function cashEffect(t) {
   const a = Number(t.amount);
@@ -119,22 +123,29 @@ export default function Page() {
   const gpRate = Number(settings.gp_rate);
   const gp = sales * (gpRate / 100);
 
+  const bankUpTo = (d) => live.filter((t) => t.date <= d).reduce((a, t) => a + bankMove(t), 0);
   const prev = closings.filter((c) => c.date < date).sort((a, b) => (a.date < b.date ? 1 : -1))[0];
   const openingCash = prev ? Number(prev.actual) : 0;
+  const openingBank = prev ? bankUpTo(prev.date) : 0;
+  // One pot: the drawer and the bank are the same money.
+  const openingTotal = openingCash + openingBank;
+  // Moving cash to the bank is not money leaving the business, so it does not count here.
+  const potEffect = (t) => (t.type === 'bank_deposit' || t.type === 'bank_withdraw') ? 0 : cashEffect(t);
   const cashIn = dayTx.reduce((a, t) => a + Math.max(0, cashEffect(t)), 0);
   const cashOut = dayTx.reduce((a, t) => a + Math.max(0, -cashEffect(t)), 0);
-  const expectedCash = openingCash + cashIn - cashOut;
+  const expectedCash = openingCash + cashIn - cashOut;          // notes that should be in the drawer
+  const moneyIn = dayTx.reduce((a, t) => a + Math.max(0, potEffect(t)), 0);
+  const moneyOut = dayTx.reduce((a, t) => a + Math.max(0, -potEffect(t)), 0);
+  const expectedTotal = openingTotal + moneyIn - moneyOut;      // cash + bank together
+  const bankTotal = bankUpTo(date);
 
-  const bankMove = (t) => t.type === 'bank_deposit' ? Number(t.amount)
-    : t.type === 'bank_withdraw' ? -Number(t.amount) : 0;
   const bankedToday = dayTx.reduce((a, t) => a + bankMove(t), 0);
-  const bankOpening = live.filter((t) => t.date < date).reduce((a, t) => a + bankMove(t), 0);
-  const bankTotal = bankOpening + bankedToday;
 
   const c = {
     data, me, parties, entries, live, closings, settings, items, orders, bills, stock, users,
     date, dayTx, closing, dayLocked, sales, purch, purchRet, exp, waste, gp, gpRate,
-    openingCash, cashIn, cashOut, expectedCash, bankedToday, bankOpening, bankTotal,
+    openingCash, openingBank, openingTotal, cashIn, cashOut, expectedCash,
+    moneyIn, moneyOut, expectedTotal, bankedToday, bankTotal,
     run, say, setSheet, refresh, setDate,
   };
 
@@ -255,9 +266,10 @@ function Home(c) {
     <>
       <div className="card">
         <span className="lbl">Money in hand · {dshow(c.date)}</span>
-        <div className="big" style={{ color: 'var(--mango)' }}>{money(c.expectedCash + c.bankTotal)}</div>
-        <div className="k" style={{ marginTop: 4 }}>cash {money(c.expectedCash)} + bank {money(c.bankTotal)}</div>
-        <div className="rowb" style={{ marginTop: 10 }}><span className="k">Opening cash</span><span className="v">{money(c.openingCash)}</span></div>
+        <div className="big" style={{ color: 'var(--mango)' }}>{money(c.expectedTotal)}</div>
+        <div className="k" style={{ marginTop: 4 }}>drawer {money(c.expectedCash)} · bank {money(c.bankTotal)}</div>
+        <div className="rowb" style={{ marginTop: 10 }}><span className="k">Opening — cash + bank</span>
+          <span className="v">{money(c.openingTotal)}</span></div>
         <Row label="Cash in" value={c.cashIn} type="cash_in_all" colour="var(--leaf)" />
         <Row label="Cash out" value={c.cashOut} type="cash_out_all" colour="var(--beet)" />
         <div className="rowb"><span className="k">Of which sent to bank</span><span className="v">{money(c.bankedToday)}</span></div>
@@ -1048,7 +1060,9 @@ function DayClose(c) {
   const [deposit, setDeposit] = useState('');
   const dep = parseFloat(deposit) || 0;
   const notes = DENOMS.reduce((a, d) => a + d * (qty[d] || 0), 0);
-  const diff = notes + dep - c.expectedCash;
+  const bankAfter = c.bankTotal + dep;
+  const accounted = notes + bankAfter;
+  const diff = accounted - c.expectedTotal;
   const alert = Number(c.settings.cash_alert);
 
   const reopen = () => {
@@ -1061,17 +1075,18 @@ function DayClose(c) {
       <div className="card">
         <span className="lbl">Opening · {dshow(c.date)}</span>
         <div className="rowb"><span className="k">Cash in drawer</span><span className="v">{money(c.openingCash)}</span></div>
-        <div className="rowb"><span className="k">In bank till yesterday</span><span className="v">{money(c.bankOpening)}</span></div>
+        <div className="rowb"><span className="k">In bank</span><span className="v">{money(c.openingBank)}</span></div>
         <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Total opening</b>
-          <b className="v" style={{ fontSize: 19 }}>{money(c.openingCash + c.bankOpening)}</b></div>
+          <b className="v" style={{ fontSize: 19 }}>{money(c.openingTotal)}</b></div>
       </div>
 
       <div className="card">
-        <span className="lbl">Today's cash movement</span>
-        <div className="rowb"><span className="k">Cash in</span><span className="v">+{money(c.cashIn)}</span></div>
-        <div className="rowb"><span className="k">Cash out</span><span className="v">−{money(c.cashOut)}</span></div>
-        <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Expected in drawer</b>
-          <b className="v" style={{ fontSize: 19 }}>{money(c.expectedCash)}</b></div>
+        <span className="lbl">Today's movement</span>
+        <div className="rowb"><span className="k">Money in</span><span className="v">+{money(c.moneyIn)}</span></div>
+        <div className="rowb"><span className="k">Money out</span><span className="v">−{money(c.moneyOut)}</span></div>
+        <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Expected — cash + bank</b>
+          <b className="v" style={{ fontSize: 19 }}>{money(c.expectedTotal)}</b></div>
+        <p className="k" style={{ marginTop: 6 }}>Of which the drawer alone should hold {money(c.expectedCash)}.</p>
       </div>
 
       <div className="card">
@@ -1094,21 +1109,18 @@ function DayClose(c) {
         <p className="k" style={{ marginTop: 2, marginBottom: 12 }}>Amount sent to the bank today.</p>
 
         <div className="rowb"><span className="k">Notes counted</span><span className="v">{money(notes)}</span></div>
-        <div className="rowb"><span className="k">Sent to bank</span><span className="v">{money(dep)}</span></div>
+        <div className="rowb"><span className="k">In bank after today</span><span className="v">{money(bankAfter)}</span></div>
         <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Total accounted</b>
-          <b className="v" style={{ fontSize: 19 }}>{money(notes + dep)}</b></div>
-        <div className="rowb"><span className="k">Expected</span><span className="v">{money(c.expectedCash)}</span></div>
+          <b className="v" style={{ fontSize: 19 }}>{money(accounted)}</b></div>
+        <div className="rowb"><span className="k">Expected — cash + bank</span><span className="v">{money(c.expectedTotal)}</span></div>
         <div className="rowb"><span className="k">Difference</span>
           <span className="diff" style={{ color: diff === 0 ? 'var(--leaf)' : 'var(--beet)' }}>
             {diff > 0 ? '+' : ''}{money(diff)}</span></div>
         {Math.abs(diff) >= alert && !c.dayLocked &&
           <div className="warn">Difference is over {money(alert)}. Recount before closing.</div>}
-        <div className="rowb" style={{ marginTop: 6 }}><span className="k">In bank after today</span>
-          <span className="v">{money(c.bankOpening + dep)}</span></div>
-        <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Total holding</b>
-          <b className="v" style={{ fontSize: 19, color: 'var(--leaf)' }}>{money(notes + c.bankOpening + dep)}</b></div>
         <p className="empty" style={{ fontSize: 12, padding: '6px 0 0' }}>
-          Tomorrow's drawer opens with {money(notes)}. The bank figure carries forward on its own.
+          Tomorrow opens with {money(accounted)} — {money(notes)} in the drawer and {money(bankAfter)} in the bank.
+          If the drawer runs short, the bank covers it; the total is what matters.
         </p>
       </div>
 
@@ -1247,7 +1259,7 @@ function Investment({ c }) {
   const totalIntoShop = openingPurchase + renovation;
   const stockList = c.stock || [];
   const stockValue = stockList[0] ? Number(stockList[0].value) : 0;
-  const savings = c.expectedCash + (c.bankTotal || 0);
+  const savings = c.expectedTotal || 0;
 
   if (setup.length === 0 && !stockValue) {
     return (
