@@ -12,7 +12,7 @@ export async function GET() {
       sql`SELECT id, type, biz_date::text AS date, party_id, amount, mode, category, ref_no, remarks,
                  created_by, is_setup
             FROM entries ORDER BY biz_date DESC, id DESC LIMIT 800`,
-      sql`SELECT biz_date::text AS date, opening, expected, actual, denoms, status, closed_by FROM closings`,
+      sql`SELECT biz_date::text AS date, opening, expected, actual, bank_balance, denoms, status, closed_by FROM closings`,
       sql`SELECT id, who, what, created_at FROM audit ORDER BY id DESC LIMIT 30`,
       sql`SELECT * FROM settings WHERE id = 1`,
       sql`SELECT id, name, role FROM users WHERE is_active ORDER BY id`,
