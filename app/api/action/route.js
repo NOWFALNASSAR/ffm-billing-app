@@ -177,10 +177,20 @@ export async function POST(req) {
 
       /* ------------------------------ day closing -------------------------- */
       case 'close': {
-        const { date, opening, expected, actual, denoms, deposit } = payload;
+        const { date, opening, expected, actual, denoms, deposit, adjust } = payload;
         const dep = Number(deposit) || 0;
         if (dep > 0) {
           await insertEntry(me, { type: 'bank_deposit', date, amount: dep, mode: 'cash', remarks: 'Day end deposit' });
+        }
+        // An excess or shortage found while counting is written into the books,
+        // so tomorrow's opening carries the real figure.
+        const adj = Number(adjust) || 0;
+        if (adj !== 0) {
+          await insertEntry(me, {
+            type: adj > 0 ? 'cash_in' : 'cash_out', date, amount: Math.abs(adj), mode: 'cash',
+            category: 'Day end difference',
+            remarks: adj > 0 ? 'Day end excess' : 'Day end shortage',
+          });
         }
         await sql`
           INSERT INTO closings (biz_date, opening, expected, actual, denoms, status, closed_by)
@@ -189,7 +199,8 @@ export async function POST(req) {
           ON CONFLICT (biz_date) DO UPDATE SET
             opening = EXCLUDED.opening, expected = EXCLUDED.expected, actual = EXCLUDED.actual,
             denoms = EXCLUDED.denoms, status = 'CLOSED', closed_by = EXCLUDED.closed_by, closed_at = now()`;
-        await log(me.name, `Closed ${date}: kept ${money(actual)}, banked ${money(dep)}`);
+        await log(me.name, `Closed ${date}: cash ${money(actual)}, banked ${money(dep)}` +
+          (adj ? `, ${adj > 0 ? 'excess' : 'shortage'} ${money(Math.abs(adj))}` : ''));
         return ok();
       }
 
