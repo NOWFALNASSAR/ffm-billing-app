@@ -131,6 +131,9 @@ export default function Page() {
   // One pot: the drawer and the bank are the same money.
   const openingTotal = openingCash + openingBank;
   const bankUpTo = (d) => live.filter((t) => t.date <= d).reduce((a, t) => a + bankMove(t), 0);
+  const isDiff = (t) => t.category === 'Day end difference';
+  const diffToDate = live.filter((t) => isDiff(t) && t.date <= date)
+    .reduce((a, t) => a + (t.type === 'cash_in' ? Number(t.amount) : -Number(t.amount)), 0);
   // Moving cash to the bank is not money leaving the business, so it does not count here.
   const potEffect = (t) => (t.type === 'bank_deposit' || t.type === 'bank_withdraw') ? 0 : cashEffect(t);
   const cashIn = dayTx.reduce((a, t) => a + Math.max(0, cashEffect(t)), 0);
@@ -147,7 +150,7 @@ export default function Page() {
     data, me, parties, entries, live, closings, settings, items, orders, bills, stock, users,
     date, dayTx, closing, dayLocked, sales, purch, purchRet, exp, waste, gp, gpRate,
     openingCash, openingBank, openingTotal, cashIn, cashOut, expectedCash,
-    moneyIn, moneyOut, expectedTotal, bankedToday, bankTotal,
+    moneyIn, moneyOut, expectedTotal, bankedToday, bankTotal, diffToDate,
     run, say, setSheet, refresh, setDate,
   };
 
@@ -156,7 +159,7 @@ export default function Page() {
       <header className="bar">
         <div style={{ flex: 1 }}>
           <div className="brand">{settings.shop_name}</div>
-          <div className="sub">{me.role.toLowerCase()} · {me.name} · v10.1</div>
+          <div className="sub">{me.role.toLowerCase()} · {me.name} · v11.1</div>
         </div>
         {me.role === 'BILLING'
           ? <div className="pill" style={{ padding: '9px 12px' }}>{dshow(date)} · today only</div>
@@ -1060,7 +1063,6 @@ function DayClose(c) {
     const q = {}; DENOMS.forEach((d) => (q[d] = Number(c.closing?.denoms?.[d]) || 0)); return q;
   });
   const [deposit, setDeposit] = useState('');
-  const [applyDiff, setApplyDiff] = useState(true);
 
   const dep = parseFloat(deposit) || 0;
   const notes = DENOMS.reduce((a, d) => a + d * (qty[d] || 0), 0);
@@ -1069,7 +1071,7 @@ function DayClose(c) {
   // Cash the books say should be there, after today's bank move.
   const cashPerBooks = c.expectedCash - dep;
   const diff = counted ? notes - cashPerBooks : 0;          // + excess, − short
-  const closingCash = counted && applyDiff ? notes : cashPerBooks;
+  const closingCash = counted ? notes : cashPerBooks;   // the drawer is whatever is really in it
   const closingBank = c.bankTotal + dep;
   const closingTotal = closingCash + closingBank;
   const alert = Number(c.settings.cash_alert);
@@ -1125,10 +1127,12 @@ function DayClose(c) {
               <span className="diff" style={{ color: diff === 0 ? 'var(--leaf)' : 'var(--beet)' }}>
                 {diff > 0 ? '+' : ''}{money(diff)}</span></div>
             {diff !== 0 && (
-              <button className="tab" style={{ marginTop: 8, width: '100%' }}
-                onClick={() => setApplyDiff(!applyDiff)}>
-                {applyDiff ? '☑' : '☐'} Add this {diff >= 0 ? 'excess' : 'shortage'} to the closing balance
-              </button>
+              <div className="warn" style={{ background: diff > 0 ? '#12301F' : '#3A1420',
+                borderColor: diff > 0 ? '#2F6B4E' : '#6B2F45', color: diff > 0 ? 'var(--leaf)' : 'var(--beet)' }}>
+                <b>{diff > 0 ? 'Excess' : 'Shortage'} of {money(Math.abs(diff))}</b><br />
+                This is written into the books and carried forward, so tomorrow starts from the
+                real drawer, not the expected one.
+              </div>
             )}
             {Math.abs(diff) >= alert && !c.dayLocked &&
               <div className="warn">Difference is over {money(alert)}. Recount before closing.</div>}
@@ -1142,6 +1146,12 @@ function DayClose(c) {
         <div className="rowb"><span className="k">Cash</span>
           <span className="v" style={{ color: closingCash < 0 ? 'var(--beet)' : 'var(--chalk)' }}>{money(closingCash)}</span></div>
         <div className="rowb"><span className="k">Bank</span><span className="v">{money(closingBank)}</span></div>
+        <div className="rowb"><span className="k">Difference found today</span>
+          <span className="v" style={{ color: diff === 0 ? 'var(--muted)' : diff > 0 ? 'var(--leaf)' : 'var(--beet)' }}>
+            {diff > 0 ? '+' : ''}{money(diff)}</span></div>
+        <div className="rowb"><span className="k">Excess / short to date</span>
+          <span className="v" style={{ color: (c.diffToDate + diff) === 0 ? 'var(--muted)' : (c.diffToDate + diff) > 0 ? 'var(--leaf)' : 'var(--beet)' }}>
+            {(c.diffToDate + diff) > 0 ? '+' : ''}{money(c.diffToDate + diff)}</span></div>
         <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Opening tomorrow</b>
           <b className="big" style={{ fontSize: 26, color: closingTotal < 0 ? 'var(--beet)' : 'var(--mango)' }}>
             {money(closingTotal)}</b></div>
@@ -1161,7 +1171,7 @@ function DayClose(c) {
           onClick={() => c.run('close', {
             date: c.date, opening: c.openingTotal, expected: c.expectedCash,
             actual: closingCash, denoms: qty, deposit: dep,
-            adjust: counted && applyDiff ? diff : 0,
+            adjust: counted ? diff : 0,
           }, 'Day closed')}>
           Close {dshow(c.date)}
         </button>
