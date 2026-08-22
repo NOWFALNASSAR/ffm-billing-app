@@ -123,11 +123,15 @@ export default function Page() {
   const gpRate = Number(settings.gp_rate);
   const gp = sales * (gpRate / 100);
 
-  // Opening is the running balance of every entry before today — never the counted
-  // notes. Counting only flags a difference; it must not erase a payment.
-  const before = live.filter((t) => t.date < date);
-  const openingCash = before.reduce((a, t) => a + cashEffect(t), 0);
-  const openingBank = before.reduce((a, t) => a + bankMove(t), 0);
+  // Opening = exactly what the last closed day finished with, plus anything entered
+  // on days since that were never closed. What you saw at close is what opens.
+  const lastClose = closings.filter((x) => x.date < date && x.status === 'CLOSED')
+    .sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+  const sinceClose = live.filter((t) => t.date < date && (!lastClose || t.date > lastClose.date));
+  const openingCash = (lastClose ? Number(lastClose.actual) : 0)
+    + sinceClose.reduce((a, t) => a + cashEffect(t), 0);
+  const openingBank = (lastClose ? Number(lastClose.bank_balance || 0) : 0)
+    + sinceClose.reduce((a, t) => a + bankMove(t), 0);
   // One pot: the drawer and the bank are the same money.
   const openingTotal = openingCash + openingBank;
   const bankUpTo = (d) => live.filter((t) => t.date <= d).reduce((a, t) => a + bankMove(t), 0);
@@ -142,7 +146,7 @@ export default function Page() {
   const moneyIn = dayTx.reduce((a, t) => a + Math.max(0, potEffect(t)), 0);
   const moneyOut = dayTx.reduce((a, t) => a + Math.max(0, -potEffect(t)), 0);
   const expectedTotal = openingTotal + moneyIn - moneyOut;      // cash + bank together
-  const bankTotal = bankUpTo(date);
+  const bankTotal = openingBank + bankedToday;
 
   const bankedToday = dayTx.reduce((a, t) => a + bankMove(t), 0);
 
@@ -159,7 +163,7 @@ export default function Page() {
       <header className="bar">
         <div style={{ flex: 1 }}>
           <div className="brand">{settings.shop_name}</div>
-          <div className="sub">{me.role.toLowerCase()} · {me.name} · v11.1</div>
+          <div className="sub">{me.role.toLowerCase()} · {me.name} · v12</div>
         </div>
         {me.role === 'BILLING'
           ? <div className="pill" style={{ padding: '9px 12px' }}>{dshow(date)} · today only</div>
@@ -1134,8 +1138,13 @@ function DayClose(c) {
                 real drawer, not the expected one.
               </div>
             )}
-            {Math.abs(diff) >= alert && !c.dayLocked &&
-              <div className="warn">Difference is over {money(alert)}. Recount before closing.</div>}
+            {Math.abs(diff) >= alert && !c.dayLocked && (
+              <div className="warn">
+                {Math.abs(diff) > 10 * alert
+                  ? 'A gap this large is almost always a missing or duplicated entry, not missing cash. Check today\'s entries before closing.'
+                  : `Difference is over ${money(alert)}. Recount before closing.`}
+              </div>
+            )}
           </>
         )}
         {!counted && <p className="k">Leave the counting blank and the books figure is carried as it is.</p>}
@@ -1168,11 +1177,16 @@ function DayClose(c) {
         </>
       ) : (
         <button className="btn" style={{ marginTop: 14 }}
-          onClick={() => c.run('close', {
-            date: c.date, opening: c.openingTotal, expected: c.expectedCash,
-            actual: closingCash, denoms: qty, deposit: dep,
-            adjust: counted ? diff : 0,
-          }, 'Day closed')}>
+          onClick={() => {
+            if (Math.abs(diff) > 10 * alert &&
+              !window.confirm(`The count differs from the books by ${money(Math.abs(diff))}. ` +
+                'That is a large gap — usually an entry is missing, not the cash. Close anyway?')) return;
+            c.run('close', {
+              date: c.date, opening: c.openingTotal, expected: c.expectedCash,
+              actual: closingCash, bank: closingBank, denoms: qty, deposit: dep,
+              adjust: counted ? diff : 0,
+            }, 'Day closed');
+          }}>
           Close {dshow(c.date)}
         </button>
       )}
