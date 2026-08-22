@@ -1060,11 +1060,18 @@ function DayClose(c) {
     const q = {}; DENOMS.forEach((d) => (q[d] = Number(c.closing?.denoms?.[d]) || 0)); return q;
   });
   const [deposit, setDeposit] = useState('');
+  const [applyDiff, setApplyDiff] = useState(true);
+
   const dep = parseFloat(deposit) || 0;
   const notes = DENOMS.reduce((a, d) => a + d * (qty[d] || 0), 0);
-  const bankAfter = c.bankTotal + dep;
-  const accounted = notes + bankAfter;
-  const diff = accounted - c.expectedTotal;
+  const counted = DENOMS.some((d) => qty[d] > 0);          // did anyone actually count?
+
+  // Cash the books say should be there, after today's bank move.
+  const cashPerBooks = c.expectedCash - dep;
+  const diff = counted ? notes - cashPerBooks : 0;          // + excess, − short
+  const closingCash = counted && applyDiff ? notes : cashPerBooks;
+  const closingBank = c.bankTotal + dep;
+  const closingTotal = closingCash + closingBank;
   const alert = Number(c.settings.cash_alert);
 
   const reopen = () => {
@@ -1076,19 +1083,19 @@ function DayClose(c) {
     <>
       <div className="card">
         <span className="lbl">Opening · {dshow(c.date)}</span>
-        <div className="rowb"><span className="k">Cash in drawer</span><span className="v">{money(c.openingCash)}</span></div>
-        <div className="rowb"><span className="k">In bank</span><span className="v">{money(c.openingBank)}</span></div>
-        <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Total opening</b>
-          <b className="v" style={{ fontSize: 19 }}>{money(c.openingTotal)}</b></div>
+        <div className="rowb"><span className="k">Carried from yesterday</span>
+          <span className="v">{money(c.openingTotal)}</span></div>
+        <div className="rowb"><span className="k">of that, cash</span><span className="v">{money(c.openingCash)}</span></div>
+        <div className="rowb"><span className="k">of that, bank</span><span className="v">{money(c.openingBank)}</span></div>
       </div>
 
       <div className="card">
         <span className="lbl">Today's movement</span>
-        <div className="rowb"><span className="k">Money in</span><span className="v">+{money(c.moneyIn)}</span></div>
-        <div className="rowb"><span className="k">Money out</span><span className="v">−{money(c.moneyOut)}</span></div>
-        <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Expected — cash + bank</b>
-          <b className="v" style={{ fontSize: 19 }}>{money(c.expectedTotal)}</b></div>
-        <p className="k" style={{ marginTop: 6 }}>Of which the drawer alone should hold {money(c.expectedCash)}.</p>
+        <div className="rowb"><span className="k">Cash in</span><span className="v">+{money(c.cashIn)}</span></div>
+        <div className="rowb"><span className="k">Cash out</span><span className="v">−{money(c.cashOut)}</span></div>
+        <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Cash the books expect</b>
+          <b className="v" style={{ fontSize: 19, color: c.expectedCash < 0 ? 'var(--beet)' : 'var(--chalk)' }}>
+            {money(c.expectedCash)}</b></div>
       </div>
 
       <div className="card">
@@ -1108,23 +1115,39 @@ function DayClose(c) {
             onChange={(e) => setDeposit(e.target.value)} style={{ padding: '10px 12px' }} />
           <span className="amt">{money(dep)}</span>
         </div>
-        <p className="k" style={{ marginTop: 2, marginBottom: 12 }}>Amount sent to the bank today.</p>
+        <p className="k" style={{ marginTop: 2, marginBottom: 12 }}>Cash sent to the bank today.</p>
 
-        <div className="rowb"><span className="k">Notes counted</span><span className="v">{money(notes)}</span></div>
-        <div className="rowb"><span className="k">In bank after today</span><span className="v">{money(bankAfter)}</span></div>
-        <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Total accounted</b>
-          <b className="v" style={{ fontSize: 19 }}>{money(accounted)}</b></div>
-        <div className="rowb"><span className="k">Expected — cash + bank</span><span className="v">{money(c.expectedTotal)}</span></div>
-        <div className="rowb"><span className="k">Difference</span>
-          <span className="diff" style={{ color: diff === 0 ? 'var(--leaf)' : 'var(--beet)' }}>
-            {diff > 0 ? '+' : ''}{money(diff)}</span></div>
-        {Math.abs(diff) >= alert && !c.dayLocked &&
-          <div className="warn">Difference is over {money(alert)}. Recount before closing.</div>}
-        <p className="empty" style={{ fontSize: 12, padding: '6px 0 0' }}>
-          Tomorrow opens with {money(c.expectedTotal)} — every entry carried forward, drawer
-          {' ' + money(c.expectedCash)} and bank {money(bankAfter)}. If the drawer runs short the bank
-          covers it. A counted difference is recorded here but does not change the balance —
-          correct it with a Cash in or Cash out entry.
+        {counted && (
+          <>
+            <div className="rowb"><span className="k">Counted in drawer</span><span className="v">{money(notes)}</span></div>
+            <div className="rowb"><span className="k">Books say</span><span className="v">{money(cashPerBooks)}</span></div>
+            <div className="rowb"><span className="k">{diff >= 0 ? 'Excess' : 'Short'}</span>
+              <span className="diff" style={{ color: diff === 0 ? 'var(--leaf)' : 'var(--beet)' }}>
+                {diff > 0 ? '+' : ''}{money(diff)}</span></div>
+            {diff !== 0 && (
+              <button className="tab" style={{ marginTop: 8, width: '100%' }}
+                onClick={() => setApplyDiff(!applyDiff)}>
+                {applyDiff ? '☑' : '☐'} Add this {diff >= 0 ? 'excess' : 'shortage'} to the closing balance
+              </button>
+            )}
+            {Math.abs(diff) >= alert && !c.dayLocked &&
+              <div className="warn">Difference is over {money(alert)}. Recount before closing.</div>}
+          </>
+        )}
+        {!counted && <p className="k">Leave the counting blank and the books figure is carried as it is.</p>}
+      </div>
+
+      <div className="card">
+        <span className="lbl">Closing · carried to tomorrow</span>
+        <div className="rowb"><span className="k">Cash</span>
+          <span className="v" style={{ color: closingCash < 0 ? 'var(--beet)' : 'var(--chalk)' }}>{money(closingCash)}</span></div>
+        <div className="rowb"><span className="k">Bank</span><span className="v">{money(closingBank)}</span></div>
+        <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Opening tomorrow</b>
+          <b className="big" style={{ fontSize: 26, color: closingTotal < 0 ? 'var(--beet)' : 'var(--mango)' }}>
+            {money(closingTotal)}</b></div>
+        <p className="empty" style={{ fontSize: 12, padding: '8px 0 0' }}>
+          Cash and bank as one figure. A short drawer is covered by the bank —
+          cash {money(closingCash)} with bank {money(closingBank)} carries {money(closingTotal)}.
         </p>
       </div>
 
@@ -1134,15 +1157,15 @@ function DayClose(c) {
           {c.me.role !== 'BILLING' && <button className="btn ghost" style={{ marginTop: 12 }} onClick={reopen}>Reopen day</button>}
         </>
       ) : (
-        <button className="btn" style={{ marginTop: 14 }} disabled={notes === 0 && dep === 0}
+        <button className="btn" style={{ marginTop: 14 }}
           onClick={() => c.run('close', {
-            date: c.date, opening: c.openingCash, expected: c.expectedCash,
-            actual: notes, denoms: qty, deposit: dep,
+            date: c.date, opening: c.openingTotal, expected: c.expectedCash,
+            actual: closingCash, denoms: qty, deposit: dep,
+            adjust: counted && applyDiff ? diff : 0,
           }, 'Day closed')}>
           Close {dshow(c.date)}
         </button>
       )}
-
     </>
   );
 }
