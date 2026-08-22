@@ -123,12 +123,14 @@ export default function Page() {
   const gpRate = Number(settings.gp_rate);
   const gp = sales * (gpRate / 100);
 
-  const bankUpTo = (d) => live.filter((t) => t.date <= d).reduce((a, t) => a + bankMove(t), 0);
-  const prev = closings.filter((c) => c.date < date).sort((a, b) => (a.date < b.date ? 1 : -1))[0];
-  const openingCash = prev ? Number(prev.actual) : 0;
-  const openingBank = prev ? bankUpTo(prev.date) : 0;
+  // Opening is the running balance of every entry before today — never the counted
+  // notes. Counting only flags a difference; it must not erase a payment.
+  const before = live.filter((t) => t.date < date);
+  const openingCash = before.reduce((a, t) => a + cashEffect(t), 0);
+  const openingBank = before.reduce((a, t) => a + bankMove(t), 0);
   // One pot: the drawer and the bank are the same money.
   const openingTotal = openingCash + openingBank;
+  const bankUpTo = (d) => live.filter((t) => t.date <= d).reduce((a, t) => a + bankMove(t), 0);
   // Moving cash to the bank is not money leaving the business, so it does not count here.
   const potEffect = (t) => (t.type === 'bank_deposit' || t.type === 'bank_withdraw') ? 0 : cashEffect(t);
   const cashIn = dayTx.reduce((a, t) => a + Math.max(0, cashEffect(t)), 0);
@@ -154,7 +156,7 @@ export default function Page() {
       <header className="bar">
         <div style={{ flex: 1 }}>
           <div className="brand">{settings.shop_name}</div>
-          <div className="sub">{me.role.toLowerCase()} · {me.name}</div>
+          <div className="sub">{me.role.toLowerCase()} · {me.name} · v10.1</div>
         </div>
         {me.role === 'BILLING'
           ? <div className="pill" style={{ padding: '9px 12px' }}>{dshow(date)} · today only</div>
@@ -1119,8 +1121,10 @@ function DayClose(c) {
         {Math.abs(diff) >= alert && !c.dayLocked &&
           <div className="warn">Difference is over {money(alert)}. Recount before closing.</div>}
         <p className="empty" style={{ fontSize: 12, padding: '6px 0 0' }}>
-          Tomorrow opens with {money(accounted)} — {money(notes)} in the drawer and {money(bankAfter)} in the bank.
-          If the drawer runs short, the bank covers it; the total is what matters.
+          Tomorrow opens with {money(c.expectedTotal)} — every entry carried forward, drawer
+          {' ' + money(c.expectedCash)} and bank {money(bankAfter)}. If the drawer runs short the bank
+          covers it. A counted difference is recorded here but does not change the balance —
+          correct it with a Cash in or Cash out entry.
         </p>
       </div>
 
