@@ -62,6 +62,26 @@ export async function POST(req) {
         return ok();
       }
 
+      /* ------------------------- balance adjustment ------------------------ */
+      case 'adjust': {
+        if (me.role !== 'ADMIN') return bad('Only an admin can adjust a balance.');
+        const reason = String(payload.reason || '').trim();
+        if (reason.length < 3) return bad('A reason is needed for every adjustment.');
+        const gap = Number(payload.gap);
+        if (!gap) return bad('The corrected amount is the same as the current one.');
+        const isReserve = payload.target === 'reserve';
+        const type = isReserve
+          ? (gap > 0 ? 'bank_deposit' : 'bank_withdraw')
+          : (gap > 0 ? 'cash_in' : 'cash_out');
+        await insertEntry(me, {
+          type, date: payload.date, amount: Math.abs(gap), mode: 'cash',
+          category: isReserve ? (payload.name || 'Unnamed') : 'Adjustment',
+          remarks: 'Adjustment: ' + reason,
+        });
+        await log(me.name, `Adjusted ${isReserve ? 'reserve' : 'cash'} by ${money(gap)} — ${reason}`);
+        return ok();
+      }
+
       /* --------------------------- setup / opening ------------------------- */
       case 'setupEntry': {
         if (me.role === 'BILLING') return bad('Only a manager or admin can enter opening figures.');
