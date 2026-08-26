@@ -192,7 +192,7 @@ export default function Page() {
       <header className="bar">
         <div style={{ flex: 1 }}>
           <div className="brand">{settings.shop_name}</div>
-          <div className="sub">{me.role.toLowerCase()} · {me.name} · v19</div>
+          <div className="sub">{me.role.toLowerCase()} · {me.name} · v20.1</div>
         </div>
         {me.role === 'BILLING'
           ? <div className="pill" style={{ padding: '9px 12px' }}>{dshow(date)} · today only</div>
@@ -887,12 +887,12 @@ function BillForm({ c, close }) {
 const SECTIONS = [['vegetables', 'Vegetables'], ['fruits', 'Fruits'], ['grocery', 'Grocery']];
 
 function ItemBill({ c, kind, close }) {
-  const [stage, setStage] = useState('sections');   // sections → items → qty → pay → done
-  const [section, setSection] = useState('');
+  const [section, setSection] = useState('vegetables');
   const [item, setItem] = useState(null);
   const [qty, setQty] = useState('');
   const [rate, setRate] = useState('');
   const [cart, setCart] = useState([]);
+  const [stage, setStage] = useState('items');      // items → pay → done
   const [custName, setCustName] = useState('');
   const [phone, setPhone] = useState('');
   const [partyId, setPartyId] = useState('');
@@ -902,27 +902,40 @@ function ItemBill({ c, kind, close }) {
   const total = cart.reduce((a, l) => a + l.qty * l.rate, 0);
   const rateOf = (it) => Number(kind === 'sale' ? it.sale_rate : it.cost_rate) || 0;
   const list = c.items.filter((i) => (i.category || 'vegetables') === section);
+  const supplier = c.parties.find((p) => p.id === Number(partyId));
 
-  const pickItem = (it) => { setItem(it); setRate(String(rateOf(it) || '')); setQty(''); setStage('qty'); };
+  const pickItem = (it) => { setItem(it); setRate(String(rateOf(it) || '')); setQty(''); };
 
   const addLine = () => {
     const q = parseFloat(qty), r = parseFloat(rate);
     if (!(q > 0) || !(r >= 0)) return;
     setCart([...cart, { itemId: item.id, name: item.name, unit: item.unit, qty: q, rate: r }]);
-    setItem(null); setQty(''); setRate(''); setStage('items');
+    setItem(null); setQty(''); setRate('');
   };
 
   const save = async () => {
+    if (kind === 'purchase' && !partyId) { c.say('Choose the supplier first.'); return; }
     setBusy(true);
     try {
       await post('bill_doc', {
         kind, date: c.date, lines: cart.map((l) => ({ itemId: l.itemId, qty: l.qty, rate: l.rate })),
-        custName, phone, partyId: kind === 'purchase' ? Number(partyId) || null : null, mode,
+        custName, phone, partyId: kind === 'purchase' ? Number(partyId) : null, mode,
       });
       await c.refresh();
       setStage('done');
     } catch (e) { c.say(e.message); }
     setBusy(false);
+  };
+
+  const billText = () =>
+    `*${c.settings.shop_name}*\n${dshow(c.date)}\n\n` +
+    cart.map((l) => `${l.name} — ${l.qty} ${l.unit} × ₹${l.rate} = ₹${(l.qty * l.rate).toFixed(2)}`).join('\n') +
+    `\n\n*Total ₹${total.toFixed(2)}*\n\nThank you`;
+
+  const sendWhatsApp = () => {
+    const num = phone.replace(/\D/g, '');
+    const to = num.length === 10 ? '91' + num : num;
+    window.open(`https://wa.me/${to}?text=${encodeURIComponent(billText())}`, '_blank');
   };
 
   const upi = c.settings.upi_id;
@@ -932,87 +945,80 @@ function ItemBill({ c, kind, close }) {
     : '';
 
   return (
-    <div className="sheet" onClick={close}>
-      <div className="sheetin" onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <div>
-            <div className="brand" style={{ fontSize: 18 }}>{kind === 'sale' ? 'Item billing' : 'Item purchase'}</div>
-            <div className="sub">{dshow(c.date)} · {cart.length} items · {money(total)}</div>
-          </div>
-          <button className="pill" onClick={close}>Close</button>
+    <div className="fullscreen">
+      {/* header */}
+      <div className="fs-bar">
+        <div style={{ flex: 1 }}>
+          <div className="brand" style={{ fontSize: 16 }}>{kind === 'sale' ? 'Item billing' : 'Item purchase'}</div>
+          <div className="sub">{dshow(c.date)} · {cart.length} items · {money(total)}</div>
         </div>
+        <button className="pill" onClick={close}>Close</button>
+      </div>
 
-        {/* --- sections --- */}
-        {stage === 'sections' && (
-          <>
-            <div className="grid2">
-              {SECTIONS.map(([k, l]) => (
-                <button key={k} className="tile" style={{ padding: '26px 12px' }}
-                  onClick={() => { setSection(k); setStage('items'); }}>
-                  <b style={{ fontSize: 20 }}>{l}</b>
-                  <em>{c.items.filter((i) => (i.category || 'vegetables') === k).length} items</em>
-                </button>
-              ))}
-            </div>
-            {cart.length > 0 && (
-              <button className="btn" style={{ marginTop: 14 }} onClick={() => setStage('pay')}>
-                Bill {money(total)} · {cart.length} items
-              </button>
-            )}
-          </>
-        )}
+      {/* sections always on top */}
+      {stage === 'items' && (
+        <div className="fs-tabs">
+          {SECTIONS.map(([k, l]) => (
+            <button key={k} className={'tab' + (section === k ? ' on' : '')}
+              onClick={() => { setSection(k); setItem(null); }}>{l}</button>
+          ))}
+        </div>
+      )}
 
+      <div className="fs-body">
         {/* --- item list --- */}
-        {stage === 'items' && (
-          <>
-            <button className="pill" onClick={() => setStage('sections')}>← Sections</button>
-            <div className="card" style={{ marginTop: 10 }}>
-              <span className="lbl">{SECTIONS.find((x) => x[0] === section)?.[1]}</span>
-              {list.length === 0
-                ? <p className="empty">No items in this section. Entry → Add item.</p>
-                : list.map((it) => (
+        {stage === 'items' && !item && (
+          list.length === 0
+            ? <p className="empty">No items in this section. Entry → Add item.</p>
+            : (
+              <div className="card" style={{ marginTop: 0 }}>
+                {list.map((it) => (
                   <button key={it.id} className="item" style={{ width: '100%', textAlign: 'left' }}
                     onClick={() => pickItem(it)}>
-                    <div><b style={{ fontSize: 15 }}>{it.name}</b><small>per {it.unit}</small></div>
-                    <span className="v" style={{ color: 'var(--mango)' }}>{money(rateOf(it))}</span>
+                    <div><b style={{ fontSize: 16 }}>{it.name}</b>
+                      <small>per {it.unit}
+                        {kind === 'purchase' ? ` · sells at ${money(it.sale_rate)}` : ''}</small></div>
+                    <span className="v" style={{ color: 'var(--mango)', fontSize: 16 }}>{money(rateOf(it))}</span>
                   </button>
                 ))}
-            </div>
-            {cart.length > 0 && (
-              <button className="btn" onClick={() => setStage('pay')}>
-                Bill {money(total)} · {cart.length} items
-              </button>
-            )}
-          </>
+              </div>
+            )
         )}
 
         {/* --- quantity --- */}
-        {stage === 'qty' && item && (
-          <>
-            <div className="card" style={{ marginTop: 0 }}>
-              <span className="lbl">{item.name} · per {item.unit}</span>
-              <div className="f" style={{ marginTop: 10 }}>
-                <label className="lbl">Quantity in {item.unit}</label>
-                <input inputMode="decimal" autoFocus value={qty} placeholder="0"
-                  onChange={(e) => setQty(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && addLine()}
-                  style={{ fontFamily: 'var(--mono)', fontSize: 30, padding: '18px 14px' }} />
-              </div>
-              <div className="f">
-                <label className="lbl">Rate today</label>
-                <input inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)}
-                  style={{ fontFamily: 'var(--mono)', fontSize: 20 }} />
-              </div>
-              <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Amount</b>
-                <b className="v" style={{ fontSize: 22, color: 'var(--mango)' }}>
-                  {money((parseFloat(qty) || 0) * (parseFloat(rate) || 0))}</b></div>
+        {stage === 'items' && item && (
+          <div className="card" style={{ marginTop: 0 }}>
+            <span className="lbl">{item.name} · per {item.unit}</span>
+            {kind === 'purchase' && (
+              <p className="k" style={{ marginBottom: 10 }}>
+                Selling rate {money(item.sale_rate)} · margin at this cost{' '}
+                {parseFloat(rate) > 0 && Number(item.sale_rate) > 0
+                  ? (((Number(item.sale_rate) - parseFloat(rate)) / Number(item.sale_rate)) * 100).toFixed(1) + '%'
+                  : '—'}
+              </p>
+            )}
+            <div className="f">
+              <label className="lbl">Quantity in {item.unit}</label>
+              <input inputMode="decimal" autoFocus value={qty} placeholder="0"
+                onChange={(e) => setQty(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addLine()}
+                style={{ fontFamily: 'var(--mono)', fontSize: 32, padding: '18px 14px' }} />
             </div>
-            <button className="btn" disabled={!(parseFloat(qty) > 0)} onClick={addLine}>Add to bill</button>
-            <button className="btn ghost" style={{ marginTop: 10 }} onClick={() => setStage('items')}>Cancel</button>
-          </>
+            <div className="f">
+              <label className="lbl">{kind === 'sale' ? 'Selling rate' : 'Cost rate'}</label>
+              <input inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)}
+                style={{ fontFamily: 'var(--mono)', fontSize: 20 }} />
+            </div>
+            <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Amount</b>
+              <b className="v" style={{ fontSize: 24, color: 'var(--mango)' }}>
+                {money((parseFloat(qty) || 0) * (parseFloat(rate) || 0))}</b></div>
+            <button className="btn" style={{ marginTop: 12 }} disabled={!(parseFloat(qty) > 0)} onClick={addLine}>
+              Add to bill</button>
+            <button className="btn ghost" style={{ marginTop: 10 }} onClick={() => setItem(null)}>Back to list</button>
+          </div>
         )}
 
-        {/* --- cart, customer, payment --- */}
+        {/* --- bill --- */}
         {stage === 'pay' && (
           <>
             <div className="card" style={{ marginTop: 0 }}>
@@ -1031,20 +1037,26 @@ function ItemBill({ c, kind, close }) {
                 <b className="big" style={{ fontSize: 28, color: 'var(--mango)' }}>{money(total)}</b></div>
             </div>
 
-            <button className="btn ghost" onClick={() => setStage('sections')}>+ Add more items</button>
-
             {kind === 'purchase'
-              ? <div style={{ marginTop: 14 }}><PartyPicker c={c} kind="supplier" value={partyId} onChange={setPartyId} /></div>
+              ? (
+                <>
+                  <PartyPicker c={c} kind="supplier" value={partyId} onChange={setPartyId} />
+                  <p className="k" style={{ marginTop: -6, marginBottom: 12 }}>
+                    {supplier ? `Goes to ${supplier.name}'s account — payable now ${money(outstanding(c, supplier.id))}`
+                      : 'Choose the supplier so it lands in his account.'}
+                  </p>
+                </>
+              )
               : (
-                <div className="grid2" style={{ marginTop: 14 }}>
+                <div className="grid2">
                   <div className="f"><label className="lbl">Customer — optional</label>
                     <input value={custName} onChange={(e) => setCustName(e.target.value)} placeholder="Skip if not needed" /></div>
-                  <div className="f"><label className="lbl">Phone — optional</label>
-                    <input inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} /></div>
+                  <div className="f"><label className="lbl">Phone — for WhatsApp</label>
+                    <input inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="10 digits" /></div>
                 </div>
               )}
 
-            <div className="f"><label className="lbl">Paid by</label>
+            <div className="f"><label className="lbl">{kind === 'sale' ? 'Paid by' : 'Payment'}</label>
               <div className="tabs" style={{ padding: 0 }}>
                 {['cash', 'credit'].map((m) => (
                   <button key={m} className={'tab' + (mode === m ? ' on' : '')} onClick={() => setMode(m)}>{m}</button>))}
@@ -1061,8 +1073,9 @@ function ItemBill({ c, kind, close }) {
             )}
 
             <button className="btn" disabled={busy || cart.length === 0} onClick={save}>
-              {busy ? 'Saving…' : `Save bill ${money(total)}`}
-            </button>
+              {busy ? 'Saving…' : `Save bill ${money(total)}`}</button>
+            <button className="btn ghost" style={{ marginTop: 10 }} onClick={() => setStage('items')}>
+              + Add more items</button>
           </>
         )}
 
@@ -1072,7 +1085,8 @@ function ItemBill({ c, kind, close }) {
             <div className="card" style={{ marginTop: 0, textAlign: 'center' }}>
               <div className="big" style={{ color: 'var(--leaf)' }}>{money(total)}</div>
               <p className="k" style={{ marginTop: 8 }}>
-                Saved to the {kind === 'sale' ? 'sales' : 'purchase'} register with everything else.
+                Saved to the {kind === 'sale' ? 'sales' : 'purchase'} register
+                {kind === 'purchase' && supplier ? ` under ${supplier.name}` : ''}.
               </p>
             </div>
 
@@ -1097,14 +1111,28 @@ function ItemBill({ c, kind, close }) {
             </div>
 
             <button className="btn" onClick={() => window.print()}>Print bill</button>
+            {kind === 'sale' && (
+              <button className="btn ghost" style={{ marginTop: 10 }} disabled={phone.replace(/\D/g, '').length < 10}
+                onClick={sendWhatsApp}>
+                Send on WhatsApp</button>
+            )}
             <button className="btn ghost" style={{ marginTop: 10 }}
-              onClick={() => { setCart([]); setCustName(''); setPhone(''); setStage('sections'); }}>
-              New bill
-            </button>
+              onClick={() => { setCart([]); setCustName(''); setPhone(''); setStage('items'); }}>
+              New bill</button>
             <button className="btn ghost" style={{ marginTop: 10 }} onClick={close}>Done</button>
           </>
         )}
       </div>
+
+      {/* running total bar */}
+      {stage === 'items' && cart.length > 0 && !item && (
+        <div className="fs-foot">
+          <div><div className="k">{cart.length} items</div>
+            <div className="big" style={{ fontSize: 22 }}>{money(total)}</div></div>
+          <button className="btn" style={{ width: 'auto', padding: '14px 22px' }}
+            onClick={() => setStage('pay')}>Bill →</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1804,58 +1832,115 @@ function Reports(c) {
 
 /* ------------------------------ pricing report ---------------------------- */
 function Pricing({ c }) {
+  const [sec, setSec] = useState('all');
+  const [sort, setSort] = useState('margin');
   const pricing = c.data.pricing || [];
+
   const rows = c.items.map((it) => {
     const sale = pricing.find((p) => p.item_id === it.id && p.kind === 'sale');
     const buy = pricing.find((p) => p.item_id === it.id && p.kind === 'purchase');
     const avgSale = Number(sale?.avg_rate || it.sale_rate || 0);
     const avgCost = Number(buy?.avg_rate || it.cost_rate || 0);
-    const margin = avgSale && avgCost ? ((avgSale - avgCost) / avgSale) * 100 : 0;
     return {
-      it, avgSale, avgCost, margin,
+      it, section: it.category || 'vegetables', avgSale, avgCost,
+      margin: avgSale && avgCost ? ((avgSale - avgCost) / avgSale) * 100 : 0,
       soldQty: Number(sale?.qty || 0), soldValue: Number(sale?.amount || 0),
       minSale: Number(sale?.min_rate || 0), maxSale: Number(sale?.max_rate || 0),
+      boughtValue: Number(buy?.amount || 0),
     };
-  }).filter((r) => r.avgSale || r.avgCost).sort((a, b) => b.soldValue - a.soldValue);
+  }).filter((r) => r.avgSale || r.avgCost);
 
-  const withMargin = rows.filter((r) => r.margin);
-  const avgMargin = withMargin.length
-    ? withMargin.reduce((a, r) => a + r.margin, 0) / withMargin.length : 0;
+  const bySection = SECTIONS.map(([k, label]) => {
+    const list = rows.filter((r) => r.section === k);
+    const withM = list.filter((r) => r.margin);
+    const sold = list.reduce((a, r) => a + r.soldValue, 0);
+    const bought = list.reduce((a, r) => a + r.boughtValue, 0);
+    return {
+      k, label, items: list.length,
+      avgMargin: withM.length ? withM.reduce((a, r) => a + r.margin, 0) / withM.length : 0,
+      // weighted by what you actually sold, which is the margin that pays the bills
+      realMargin: sold && bought ? ((sold - bought) / sold) * 100 : 0,
+      avgSale: list.length ? list.reduce((a, r) => a + r.avgSale, 0) / list.length : 0,
+      avgCost: list.length ? list.reduce((a, r) => a + r.avgCost, 0) / list.length : 0,
+      sold, bought,
+    };
+  }).filter((x) => x.items > 0);
+
+  const shown = (sec === 'all' ? rows : rows.filter((r) => r.section === sec))
+    .sort((a, b) => sort === 'margin' ? b.margin - a.margin : b.soldValue - a.soldValue);
+
+  const allWithM = rows.filter((r) => r.margin);
+  const overall = allWithM.length ? allWithM.reduce((a, r) => a + r.margin, 0) / allWithM.length : 0;
 
   if (rows.length === 0) {
     return (
       <div className="card">
-        <span className="lbl">Pricing and margin</span>
-        <p className="empty">Nothing yet. Use Entry → Item billing and Item purchase, and rates build up here.</p>
+        <span className="lbl">Margins and rates</span>
+        <p className="empty">Nothing yet. Use Entry → Item billing and Item purchase, and the rates build up here.</p>
       </div>
     );
   }
 
   return (
-    <div className="card">
-      <span className="lbl">Pricing and margin · last 90 days</span>
-      <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Average margin</b>
-        <b className="v" style={{ fontSize: 19, color: avgMargin >= 0 ? 'var(--leaf)' : 'var(--beet)' }}>
-          {avgMargin.toFixed(1)}%</b></div>
-      {rows.map((r) => (
-        <div key={r.it.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <b style={{ fontSize: 14 }}>{r.it.name}</b>
-            <span className="v" style={{ color: r.margin >= 0 ? 'var(--leaf)' : 'var(--beet)' }}>
-              {r.margin ? r.margin.toFixed(1) + '%' : '—'}</span>
+    <>
+      <div className="card">
+        <span className="lbl">Margins by section · last 90 days</span>
+        <div className="big" style={{ color: overall >= 0 ? 'var(--leaf)' : 'var(--beet)' }}>
+          {overall.toFixed(1)}%</div>
+        <div className="k" style={{ marginTop: 4 }}>average margin across every item</div>
+
+        {bySection.map((x) => (
+          <div key={x.k} style={{ padding: '12px 0', borderTop: '1px solid var(--line)', marginTop: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <b style={{ fontFamily: 'var(--disp)', fontSize: 17 }}>{x.label}</b>
+              <span className="v" style={{ fontSize: 17, color: x.avgMargin >= 0 ? 'var(--leaf)' : 'var(--beet)' }}>
+                {x.avgMargin.toFixed(1)}%</span>
+            </div>
+            <div style={{ height: 6, background: 'var(--raise)', borderRadius: 4, margin: '8px 0' }}>
+              <div style={{ height: 6, borderRadius: 4, background: 'var(--mango)',
+                width: Math.max(0, Math.min(100, x.avgMargin * 2)) + '%' }} />
+            </div>
+            <small style={{ color: 'var(--muted)', fontSize: 12 }}>
+              {x.items} items · average cost {money(x.avgCost)} → average rate {money(x.avgSale)}
+              {x.sold ? ` · sold ${money(x.sold)}` : ''}
+              {x.realMargin ? ` · earned margin ${x.realMargin.toFixed(1)}%` : ''}
+            </small>
           </div>
-          <small style={{ color: 'var(--muted)', fontSize: 12 }}>
-            cost {money(r.avgCost)} → sell {money(r.avgSale)} per {r.it.unit}
-            {r.minSale && r.maxSale && r.minSale !== r.maxSale
-              ? ` · sold between ${money(r.minSale)} and ${money(r.maxSale)}` : ''}
-            {r.soldQty ? ` · ${r.soldQty} ${r.it.unit} sold, ${money(r.soldValue)}` : ''}
-          </small>
+        ))}
+        <p className="empty" style={{ fontSize: 12, padding: '10px 0 0' }}>
+          The percentage is the average of each item's margin. Earned margin weighs it by what
+          actually sold — that is the one that pays the bills.
+        </p>
+      </div>
+
+      <div className="card">
+        <span className="lbl">Item by item</span>
+        <div className="tabs">
+          {[['all', 'All'], ...SECTIONS].map(([k, l]) => (
+            <button key={k} className={'tab' + (sec === k ? ' on' : '')} onClick={() => setSec(k)}>{l}</button>))}
         </div>
-      ))}
-      <p className="empty" style={{ fontSize: 12, padding: '10px 0 0' }}>
-        Margin is on the selling rate. Only items billed item-wise appear here.
-      </p>
-    </div>
+        <div className="tabs" style={{ paddingTop: 0 }}>
+          {[['margin', 'Best margin first'], ['value', 'Biggest sellers first']].map(([k, l]) => (
+            <button key={k} className={'tab' + (sort === k ? ' on' : '')} onClick={() => setSort(k)}>{l}</button>))}
+        </div>
+
+        {shown.map((r) => (
+          <div key={r.it.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <b style={{ fontSize: 14 }}>{r.it.name}</b>
+              <span className="v" style={{ color: r.margin >= 0 ? 'var(--leaf)' : 'var(--beet)' }}>
+                {r.margin ? r.margin.toFixed(1) + '%' : '—'}</span>
+            </div>
+            <small style={{ color: 'var(--muted)', fontSize: 12 }}>
+              cost {money(r.avgCost)} → sell {money(r.avgSale)} per {r.it.unit}
+              {r.minSale && r.maxSale && r.minSale !== r.maxSale
+                ? ` · sold between ${money(r.minSale)} and ${money(r.maxSale)}` : ''}
+              {r.soldQty ? ` · ${r.soldQty} ${r.it.unit}, ${money(r.soldValue)}` : ''}
+            </small>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 
