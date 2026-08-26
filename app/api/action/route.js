@@ -95,8 +95,14 @@ export async function POST(req) {
             INSERT INTO doc_lines (doc_id, item_id, qty, rate, amount)
             VALUES (${docId}, ${l.itemId}, ${Number(l.qty)}, ${Number(l.rate)}, ${amt})`;
           // remember the rate last used, so the next bill opens with it
-          if (kind === 'sale') await sql`UPDATE items SET sale_rate = ${Number(l.rate)} WHERE id = ${l.itemId}`;
-          else await sql`UPDATE items SET cost_rate = ${Number(l.rate)} WHERE id = ${l.itemId}`;
+          if (kind === 'sale') {
+            await sql`UPDATE items SET sale_rate = ${Number(l.rate)} WHERE id = ${l.itemId}`;
+          } else {
+            await sql`UPDATE items SET cost_rate = ${Number(l.rate)} WHERE id = ${l.itemId}`;
+            if (Number(l.saleRate) > 0) {
+              await sql`UPDATE items SET sale_rate = ${Number(l.saleRate)} WHERE id = ${l.itemId}`;
+            }
+          }
         }
 
         await log(me.name, `${kind === 'sale' ? 'Sale' : 'Purchase'} bill ${money(total)} · ${lines.length} items`);
@@ -283,7 +289,9 @@ export async function POST(req) {
         await sql`
           UPDATE settings SET shop_name = ${payload.shop_name}, gp_rate = ${Number(payload.gp_rate)},
             cash_alert = ${Number(payload.cash_alert)},
-            upi_id = ${payload.upi_id || ''}, upi_name = ${payload.upi_name || ''} WHERE id = 1`;
+            upi_id = ${payload.upi_id || ''}, upi_name = ${payload.upi_name || ''},
+            shop_phone = ${payload.shop_phone || ''}, shop_address = ${payload.shop_address || ''},
+            shop_tagline = ${payload.shop_tagline || ''} WHERE id = 1`;
         return ok();
       }
 
