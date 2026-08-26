@@ -192,7 +192,7 @@ export default function Page() {
       <header className="bar">
         <div style={{ flex: 1 }}>
           <div className="brand">{settings.shop_name}</div>
-          <div className="sub">{me.role.toLowerCase()} · {me.name} · v18.1</div>
+          <div className="sub">{me.role.toLowerCase()} · {me.name} · v18.2</div>
         </div>
         {me.role === 'BILLING'
           ? <div className="pill" style={{ padding: '9px 12px' }}>{dshow(date)} · today only</div>
@@ -312,6 +312,10 @@ function Home(c) {
           <span className="v">{money(c.openingCash)}</span></div>
         <Row label="Cash in" value={c.cashIn} type="cash_in_all" colour="var(--leaf)" />
         <Row label="Cash out" value={c.cashOut} type="cash_out_all" colour="var(--beet)" />
+        <div className="rowb"><span className="k">Reserve balance</span>
+          <span className="v" style={{ color: 'var(--mango)' }}>{money(c.bankTotal)}</span></div>
+        <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Cash + reserve</b>
+          <b className="v" style={{ fontSize: 19 }}>{money(c.expectedCash + c.bankTotal)}</b></div>
       </div>
 
       <div className="card">
