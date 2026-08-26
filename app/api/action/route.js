@@ -62,6 +62,47 @@ export async function POST(req) {
         return ok();
       }
 
+      /* --------------------------- item-wise bill -------------------------- */
+      case 'bill_doc': {
+        const kind = payload.kind === 'purchase' ? 'purchase' : 'sale';
+        const lines = Array.isArray(payload.lines) ? payload.lines : [];
+        if (!lines.length) return bad('Add at least one item.');
+        const err = dateAllowed(me, payload.date);
+        if (err) return bad(err);
+
+        const total = lines.reduce((a, l) => a + Number(l.qty) * Number(l.rate), 0);
+        if (!(total > 0)) return bad('The bill comes to zero.');
+
+        const mode = payload.mode === 'credit' ? 'credit' : 'cash';
+        const rows = await sql`
+          INSERT INTO entries (type, biz_date, party_id, amount, mode, ref_no, remarks, created_by, is_setup)
+          VALUES (${kind}, ${payload.date}, ${payload.partyId || null}, ${total}, ${mode},
+                  ${payload.ref || null}, ${payload.custName ? 'Bill: ' + payload.custName : 'Item bill'},
+                  ${me.name}, false)
+          RETURNING id`;
+        const entryId = rows[0].id;
+
+        const doc = await sql`
+          INSERT INTO docs (kind, biz_date, party_id, cust_name, phone, total, entry_id, created_by)
+          VALUES (${kind}, ${payload.date}, ${payload.partyId || null}, ${payload.custName || null},
+                  ${payload.phone || null}, ${total}, ${entryId}, ${me.name})
+          RETURNING id`;
+        const docId = doc[0].id;
+
+        for (const l of lines) {
+          const amt = Number(l.qty) * Number(l.rate);
+          await sql`
+            INSERT INTO doc_lines (doc_id, item_id, qty, rate, amount)
+            VALUES (${docId}, ${l.itemId}, ${Number(l.qty)}, ${Number(l.rate)}, ${amt})`;
+          // remember the rate last used, so the next bill opens with it
+          if (kind === 'sale') await sql`UPDATE items SET sale_rate = ${Number(l.rate)} WHERE id = ${l.itemId}`;
+          else await sql`UPDATE items SET cost_rate = ${Number(l.rate)} WHERE id = ${l.itemId}`;
+        }
+
+        await log(me.name, `${kind === 'sale' ? 'Sale' : 'Purchase'} bill ${money(total)} · ${lines.length} items`);
+        return NextResponse.json({ ok: true, docId, total });
+      }
+
       /* ------------------------- balance adjustment ------------------------ */
       case 'adjust': {
         if (me.role !== 'ADMIN') return bad('Only an admin can adjust a balance.');
@@ -119,9 +160,12 @@ export async function POST(req) {
         const name = String(payload.name || '').trim();
         if (!name) return bad('Item name is needed.');
         await sql`
-          INSERT INTO items (name, unit, supplier_id)
-          VALUES (${name}, ${payload.unit || 'kg'}, ${payload.supplierId || null})
-          ON CONFLICT (name) DO UPDATE SET unit = EXCLUDED.unit, supplier_id = EXCLUDED.supplier_id`;
+          INSERT INTO items (name, unit, supplier_id, category, sale_rate, cost_rate)
+          VALUES (${name}, ${payload.unit || 'kg'}, ${payload.supplierId || null},
+                  ${payload.category || 'vegetables'}, ${Number(payload.saleRate) || 0},
+                  ${Number(payload.costRate) || 0})
+          ON CONFLICT (name) DO UPDATE SET unit = EXCLUDED.unit, supplier_id = EXCLUDED.supplier_id,
+            category = EXCLUDED.category, sale_rate = EXCLUDED.sale_rate, cost_rate = EXCLUDED.cost_rate`;
         return ok();
       }
 
@@ -238,7 +282,8 @@ export async function POST(req) {
         if (me.role === 'BILLING') return bad('Billing staff cannot change settings.');
         await sql`
           UPDATE settings SET shop_name = ${payload.shop_name}, gp_rate = ${Number(payload.gp_rate)},
-            cash_alert = ${Number(payload.cash_alert)} WHERE id = 1`;
+            cash_alert = ${Number(payload.cash_alert)},
+            upi_id = ${payload.upi_id || ''}, upi_name = ${payload.upi_name || ''} WHERE id = 1`;
         return ok();
       }
 
