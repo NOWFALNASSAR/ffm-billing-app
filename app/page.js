@@ -192,7 +192,7 @@ export default function Page() {
       <header className="bar">
         <div style={{ flex: 1 }}>
           <div className="brand">{settings.shop_name}</div>
-          <div className="sub">{me.role.toLowerCase()} · {me.name} · v20.1</div>
+          <div className="sub">{me.role.toLowerCase()} · {me.name} · v21</div>
         </div>
         {me.role === 'BILLING'
           ? <div className="pill" style={{ padding: '9px 12px' }}>{dshow(date)} · today only</div>
@@ -891,7 +891,9 @@ function ItemBill({ c, kind, close }) {
   const [item, setItem] = useState(null);
   const [qty, setQty] = useState('');
   const [rate, setRate] = useState('');
+  const [sellRate, setSellRate] = useState('');
   const [cart, setCart] = useState([]);
+  const [docId, setDocId] = useState(null);
   const [stage, setStage] = useState('items');      // items → pay → done
   const [custName, setCustName] = useState('');
   const [phone, setPhone] = useState('');
@@ -904,33 +906,50 @@ function ItemBill({ c, kind, close }) {
   const list = c.items.filter((i) => (i.category || 'vegetables') === section);
   const supplier = c.parties.find((p) => p.id === Number(partyId));
 
-  const pickItem = (it) => { setItem(it); setRate(String(rateOf(it) || '')); setQty(''); };
+  const pickItem = (it) => {
+    setItem(it); setRate(String(rateOf(it) || '')); setSellRate(String(Number(it.sale_rate) || '')); setQty('');
+  };
 
   const addLine = () => {
     const q = parseFloat(qty), r = parseFloat(rate);
     if (!(q > 0) || !(r >= 0)) return;
-    setCart([...cart, { itemId: item.id, name: item.name, unit: item.unit, qty: q, rate: r }]);
-    setItem(null); setQty(''); setRate('');
+    setCart([...cart, {
+      itemId: item.id, name: item.name, unit: item.unit, qty: q, rate: r,
+      saleRate: kind === 'purchase' ? parseFloat(sellRate) || 0 : 0,
+    }]);
+    setItem(null); setQty(''); setRate(''); setSellRate('');
   };
 
   const save = async () => {
     if (kind === 'purchase' && !partyId) { c.say('Choose the supplier first.'); return; }
     setBusy(true);
     try {
-      await post('bill_doc', {
-        kind, date: c.date, lines: cart.map((l) => ({ itemId: l.itemId, qty: l.qty, rate: l.rate })),
+      const r = await post('bill_doc', {
+        kind, date: c.date,
+        lines: cart.map((l) => ({ itemId: l.itemId, qty: l.qty, rate: l.rate, saleRate: l.saleRate })),
         custName, phone, partyId: kind === 'purchase' ? Number(partyId) : null, mode,
       });
+      setDocId(r.docId);
       await c.refresh();
       setStage('done');
     } catch (e) { c.say(e.message); }
     setBusy(false);
   };
 
-  const billText = () =>
-    `*${c.settings.shop_name}*\n${dshow(c.date)}\n\n` +
-    cart.map((l) => `${l.name} — ${l.qty} ${l.unit} × ₹${l.rate} = ₹${(l.qty * l.rate).toFixed(2)}`).join('\n') +
-    `\n\n*Total ₹${total.toFixed(2)}*\n\nThank you`;
+  const billText = () => {
+    const line = '--------------------------------';
+    return `*${c.settings.shop_name}*\n` +
+      `${c.settings.shop_tagline || 'Fresher choices, happier tomorrows'}\n` +
+      (c.settings.shop_address ? `${c.settings.shop_address}\n` : '') +
+      (c.settings.shop_phone ? `Ph: ${c.settings.shop_phone}\n` : '') +
+      `${line}\n*CASH BILL*  No ${String(docId || '').padStart(6, '0')}\n` +
+      `Date: ${c.date.split('-').reverse().join('/')}\n${line}\n` +
+      cart.map((l, i) =>
+        `${i + 1}. ${l.name}\n    ${l.qty} ${l.unit} x ₹${Number(l.rate).toFixed(2)} = ₹${(l.qty * l.rate).toFixed(2)}`
+      ).join('\n') +
+      `\n${line}\nItems: ${cart.length}\n*GRAND TOTAL  ₹${total.toFixed(2)}*\n${line}\n` +
+      `Payment: ${mode === 'cash' ? 'Cash / UPI' : 'Credit'}\n\nThank you! Visit again`;
+  };
 
   const sendWhatsApp = () => {
     const num = phone.replace(/\D/g, '');
@@ -990,12 +1009,7 @@ function ItemBill({ c, kind, close }) {
           <div className="card" style={{ marginTop: 0 }}>
             <span className="lbl">{item.name} · per {item.unit}</span>
             {kind === 'purchase' && (
-              <p className="k" style={{ marginBottom: 10 }}>
-                Selling rate {money(item.sale_rate)} · margin at this cost{' '}
-                {parseFloat(rate) > 0 && Number(item.sale_rate) > 0
-                  ? (((Number(item.sale_rate) - parseFloat(rate)) / Number(item.sale_rate)) * 100).toFixed(1) + '%'
-                  : '—'}
-              </p>
+              <p className="k" style={{ marginBottom: 10 }}>Selling at {money(item.sale_rate)} now.</p>
             )}
             <div className="f">
               <label className="lbl">Quantity in {item.unit}</label>
@@ -1009,6 +1023,19 @@ function ItemBill({ c, kind, close }) {
               <input inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)}
                 style={{ fontFamily: 'var(--mono)', fontSize: 20 }} />
             </div>
+            {kind === 'purchase' && (
+              <div className="f">
+                <label className="lbl">Selling rate from now</label>
+                <input inputMode="decimal" value={sellRate} onChange={(e) => setSellRate(e.target.value)}
+                  style={{ fontFamily: 'var(--mono)', fontSize: 20 }} />
+                <p className="k" style={{ marginTop: 6 }}>
+                  {parseFloat(sellRate) > 0 && parseFloat(rate) > 0
+                    ? `Margin ${(((parseFloat(sellRate) - parseFloat(rate)) / parseFloat(sellRate)) * 100).toFixed(1)}% · ` +
+                      `₹${(parseFloat(sellRate) - parseFloat(rate)).toFixed(2)} per ${item.unit}`
+                    : 'Set what you will sell this at — it updates the item rate.'}
+                </p>
+              </div>
+            )}
             <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Amount</b>
               <b className="v" style={{ fontSize: 24, color: 'var(--mango)' }}>
                 {money((parseFloat(qty) || 0) * (parseFloat(rate) || 0))}</b></div>
@@ -1091,23 +1118,51 @@ function ItemBill({ c, kind, close }) {
             </div>
 
             <div id="print-bill" className="print-only">
-              <h3 style={{ textAlign: 'center', margin: '0 0 4px' }}>{c.settings.shop_name}</h3>
-              <p style={{ textAlign: 'center', margin: 0, fontSize: 12 }}>{dshow(c.date)}</p>
-              {custName && <p style={{ margin: '6px 0 0', fontSize: 12 }}>{custName} {phone}</p>}
-              <table style={{ width: '100%', fontSize: 12, marginTop: 8, borderCollapse: 'collapse' }}>
-                <tbody>
-                  {cart.map((l, i) => (
-                    <tr key={i}>
-                      <td>{l.name}</td>
-                      <td style={{ textAlign: 'right' }}>{l.qty} × {l.rate}</td>
-                      <td style={{ textAlign: 'right' }}>{(l.qty * l.rate).toFixed(2)}</td>
-                    </tr>
-                  ))}
-                  <tr><td colSpan={2}><b>Total</b></td>
-                    <td style={{ textAlign: 'right' }}><b>{total.toFixed(2)}</b></td></tr>
-                </tbody>
-              </table>
-              <p style={{ textAlign: 'center', fontSize: 11, marginTop: 8 }}>Thank you</p>
+              <div className="rcpt">
+                <div className="rcpt-head">
+                  <div className="rcpt-name">{c.settings.shop_name}</div>
+                  <div className="rcpt-tag">{c.settings.shop_tagline || 'Fresher choices, happier tomorrows'}</div>
+                  <div className="rcpt-addr">{c.settings.shop_address}</div>
+                  {c.settings.shop_phone && <div className="rcpt-addr">Ph: {c.settings.shop_phone}</div>}
+                </div>
+
+                <div className="rcpt-title">CASH BILL</div>
+
+                <div className="rcpt-meta">
+                  <div>Bill No : {String(docId || '—').padStart(6, '0')}</div>
+                  <div>Cashier : {c.me.name}</div>
+                  <div>Date : {c.date.split('-').reverse().join('/')}</div>
+                  <div>Time : {new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>
+                </div>
+
+                {custName && <div className="rcpt-cust">{custName}{phone ? ' · ' + phone : ''}</div>}
+
+                <table className="rcpt-table">
+                  <thead>
+                    <tr><th>#</th><th style={{ textAlign: 'left' }}>Item</th><th>Qty</th><th>Rate</th><th>Amount</th></tr>
+                  </thead>
+                  <tbody>
+                    {cart.map((l, i) => (
+                      <tr key={i}>
+                        <td>{i + 1}</td>
+                        <td style={{ textAlign: 'left' }}>{l.name}</td>
+                        <td>{l.qty} {l.unit}</td>
+                        <td>{Number(l.rate).toFixed(2)}</td>
+                        <td>{(l.qty * l.rate).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                <div className="rcpt-tot">
+                  <div><span>Total items</span><span>{cart.length}</span></div>
+                  <div><span>Sub total</span><span>₹ {total.toFixed(2)}</span></div>
+                  <div className="grand"><span>GRAND TOTAL</span><span>₹ {total.toFixed(2)}</span></div>
+                </div>
+
+                <div className="rcpt-pay">Payment : {mode === 'cash' ? 'Cash / UPI' : 'Credit'}</div>
+                <div className="rcpt-thanks">Thank you! Visit again</div>
+              </div>
             </div>
 
             <button className="btn" onClick={() => window.print()}>Print bill</button>
@@ -1344,7 +1399,7 @@ function Books(c) {
   return (
     <>
       <div className="tabs">
-        {[['ledger', 'Ledger'], ['reserve', 'Reserve'], ['supplier', 'Payable'], ['customer', 'Receivable'], ['orders', 'Orders'], ['items', 'Items'], ['bills', 'Bills']].map(([k, l]) => (
+        {[['ledger', 'Ledger'], ['shoppers', 'Shoppers'], ['reserve', 'Reserve'], ['supplier', 'Payable'], ['customer', 'Receivable'], ['orders', 'Orders'], ['items', 'Items'], ['bills', 'Bills']].map(([k, l]) => (
           <button key={k} className={'tab' + (view === k ? ' on' : '')} onClick={() => setView(k)}>{l}</button>))}
       </div>
 
@@ -1366,6 +1421,8 @@ function Books(c) {
       )}
 
       {view === 'ledger' && <Ledger c={c} />}
+
+      {view === 'shoppers' && <Shoppers c={c} />}
 
       {view === 'reserve' && <Reserve c={c} />}
 
@@ -1404,6 +1461,111 @@ function Books(c) {
           })}
         </div>
       )}
+    </>
+  );
+}
+
+function Shoppers({ c }) {
+  const [q, setQ] = useState('');
+  const [open, setOpen] = useState(null);
+  const [offer, setOffer] = useState('');
+  const [showOffer, setShowOffer] = useState(false);
+
+  const all = c.data.customers || [];
+  const list = q.trim()
+    ? all.filter((x) => (x.phone || '').includes(q.trim()) ||
+        (x.name || '').toLowerCase().includes(q.trim().toLowerCase()))
+    : all;
+
+  const waLink = (phone, text) => {
+    const n = String(phone).replace(/\D/g, '');
+    return `https://wa.me/${n.length === 10 ? '91' + n : n}?text=${encodeURIComponent(text)}`;
+  };
+
+  const days = (a, b) => Math.round((new Date(b) - new Date(a)) / 86400000);
+
+  if (open) {
+    const x = all.find((y) => y.phone === open);
+    const bills = (c.data.docs || []).filter((d) => d.kind === 'sale' && d.phone === open);
+    const span = days(x.first_visit, x.last_visit);
+    const every = x.visits > 1 ? Math.round(span / (x.visits - 1)) : 0;
+    return (
+      <>
+        <button className="pill" style={{ marginTop: 14 }} onClick={() => setOpen(null)}>← Back</button>
+        <div className="card">
+          <span className="lbl">Shopper</span>
+          <div className="brand" style={{ fontSize: 20 }}>{x.name || x.phone}</div>
+          <div className="sub" style={{ marginTop: 4 }}>{x.phone}</div>
+          <div className="rowb" style={{ marginTop: 12 }}><span className="k">Last visit</span>
+            <span className="v">{dshow(x.last_visit)} · {days(x.last_visit, c.date)} days ago</span></div>
+          <div className="rowb"><span className="k">Visits</span><span className="v">{x.visits}</span></div>
+          <div className="rowb"><span className="k">Average bill</span><span className="v">{money(x.avg_bill)}</span></div>
+          <div className="rowb"><span className="k">Total spent</span><span className="v">{money(x.spent)}</span></div>
+          <div className="rowb"><span className="k">Shopping since</span><span className="v">{dshow(x.first_visit)}</span></div>
+          {every > 0 && <div className="rowb"><span className="k">Comes about every</span>
+            <span className="v">{every} days</span></div>}
+        </div>
+
+        <div className="card">
+          <span className="lbl">Recent bills</span>
+          {bills.length === 0 ? <p className="empty">Older bills are not loaded.</p> : bills.map((b) => (
+            <div className="item" key={b.id}>
+              <div><b style={{ fontSize: 14 }}>Bill {String(b.id).padStart(6, '0')}</b>
+                <small>{dshow(b.date)} · by {b.created_by}</small></div>
+              <span className="v">{money(b.total)}</span>
+            </div>
+          ))}
+        </div>
+
+        <a className="btn" style={{ display: 'block', textAlign: 'center', textDecoration: 'none' }}
+          href={waLink(x.phone, `Hello ${x.name || ''}, from ${c.settings.shop_name}.`)}
+          target="_blank" rel="noreferrer">Message on WhatsApp</a>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div className="card">
+        <span className="lbl">Shoppers · {all.length}</span>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name or phone number" />
+        <p className="k" style={{ marginTop: 8 }}>
+          Built from billed phone numbers. Enter a phone at billing time and the history grows by itself.
+        </p>
+      </div>
+
+      <button className="btn ghost" onClick={() => setShowOffer(!showOffer)}>
+        {showOffer ? 'Hide offer message' : 'Send an offer to shoppers'}
+      </button>
+
+      {showOffer && (
+        <div className="card">
+          <span className="lbl">Offer message</span>
+          <textarea rows={4} value={offer} onChange={(e) => setOffer(e.target.value)}
+            placeholder={`Onam offer at ${c.settings.shop_name} — 10% off all fruits this week.`} />
+          <p className="empty" style={{ fontSize: 12, padding: '8px 0 0' }}>
+            WhatsApp does not allow one message to many numbers from a normal account. Each shopper
+            below gets a Send button that opens their chat with this message ready — one tap each.
+            For true bulk sending you need a WhatsApp Business API account through a provider.
+          </p>
+        </div>
+      )}
+
+      <div className="card">
+        {list.length === 0
+          ? <p className="empty">No shoppers yet. Add a phone number while billing.</p>
+          : list.map((x) => (
+            <div className="item" key={x.phone}>
+              <button style={{ textAlign: 'left', flex: 1 }} onClick={() => setOpen(x.phone)}>
+                <b style={{ fontSize: 15 }}>{x.name || x.phone}</b>
+                <small>{x.visits} visits · avg {money(x.avg_bill)} · last {dshow(x.last_visit)}</small>
+              </button>
+              {showOffer && offer.trim()
+                ? <a className="pill" href={waLink(x.phone, offer)} target="_blank" rel="noreferrer">send</a>
+                : <span className="v">{money(x.spent)}</span>}
+            </div>
+          ))}
+      </div>
     </>
   );
 }
@@ -2048,6 +2210,8 @@ function SettingsCard({ c }) {
   const [form, setForm] = useState({
     shop_name: c.settings.shop_name, gp_rate: c.settings.gp_rate, cash_alert: c.settings.cash_alert,
     upi_id: c.settings.upi_id || '', upi_name: c.settings.upi_name || '',
+    shop_phone: c.settings.shop_phone || '', shop_address: c.settings.shop_address || '',
+    shop_tagline: c.settings.shop_tagline || '',
   });
   const [oldPin, setOldPin] = useState('');
   const [newPin, setNewPin] = useState('');
@@ -2064,6 +2228,16 @@ function SettingsCard({ c }) {
         <>
           <div className="f"><label className="lbl">Shop name</label>
             <input value={form.shop_name} onChange={(e) => setForm({ ...form, shop_name: e.target.value })} /></div>
+          <div className="f"><label className="lbl">Tagline on the bill</label>
+            <input value={form.shop_tagline || ''} onChange={(e) => setForm({ ...form, shop_tagline: e.target.value })}
+              placeholder="Fresher choices, happier tomorrows" /></div>
+          <div className="grid2">
+            <div className="f"><label className="lbl">Address on the bill</label>
+              <input value={form.shop_address || ''} onChange={(e) => setForm({ ...form, shop_address: e.target.value })}
+                placeholder="Mavinchuvadu, Muthalakodam" /></div>
+            <div className="f"><label className="lbl">Shop phone</label>
+              <input inputMode="tel" value={form.shop_phone || ''} onChange={(e) => setForm({ ...form, shop_phone: e.target.value })} /></div>
+          </div>
           <div className="grid2">
             <div className="f"><label className="lbl">UPI ID for the bill QR</label>
               <input value={form.upi_id || ''} onChange={(e) => setForm({ ...form, upi_id: e.target.value })}
@@ -2104,3 +2278,13 @@ function SettingsCard({ c }) {
     </div>
   );
 }
+
+-- Fresh Control v21 — printed bill, customer history, offers. Run ONCE in Neon.
+
+ALTER TABLE settings ADD COLUMN IF NOT EXISTS shop_phone   text NOT NULL DEFAULT '';
+ALTER TABLE settings ADD COLUMN IF NOT EXISTS shop_address text NOT NULL DEFAULT '';
+ALTER TABLE settings ADD COLUMN IF NOT EXISTS shop_tagline text NOT NULL DEFAULT 'Fresher choices, happier tomorrows';
+
+CREATE INDEX IF NOT EXISTS docs_phone_idx ON docs (phone) WHERE phone IS NOT NULL;
+
+SELECT 'v21 migration done' AS result;
