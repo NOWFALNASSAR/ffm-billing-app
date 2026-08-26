@@ -82,6 +82,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--mango); }
   gap: 16px; padding: 14px 16px calc(14px + env(safe-area-inset-bottom)); background: var(--board); border-top: 1px solid var(--line); }
 
 /* --- printed receipt --- */
+.bill-sheet { background: #fff; border-radius: 12px; padding: 14px 10px; margin: 12px 0; }
 .rcpt { font-family: 'Archivo', system-ui, sans-serif; color: #0b2b17; max-width: 320px; margin: 0 auto; }
 .rcpt-head { text-align: center; border-bottom: 2px solid #0b7a3b; padding-bottom: 8px; }
 .rcpt-name { font-family: 'Archivo Narrow', sans-serif; font-weight: 700; font-size: 22px; letter-spacing: .04em;
@@ -105,11 +106,15 @@ input:focus, select:focus, textarea:focus { border-color: var(--mango); }
 /* Only the bill goes to the printer. */
 .print-only { display: none; }
 @media print {
-  body * { visibility: hidden; }
-  .print-only, .print-only * { visibility: visible; }
-  .print-only { display: block; background: #fff; }
-  .print-only { position: absolute; left: 0; top: 0; width: 100%; padding: 8px; }
-  .print-only table, .print-only tr, .print-only td { display: table; width: 100%; }
-  .print-only tr { display: table-row; }
-  .print-only td { display: table-cell; }
+  @page { margin: 6mm; }
+  body * { visibility: hidden !important; }
+  #print-bill, #print-bill * { visibility: visible !important; }
+  #print-bill { position: absolute !important; left: 0; top: 0; width: 100%; margin: 0; padding: 0;
+    background: #fff !important; border-radius: 0; }
+  .fullscreen { position: static !important; overflow: visible !important; height: auto !important; }
+  .fs-bar, .fs-tabs, .fs-foot, .nav, .bar, .btn, .pill, .card:not(.bill-sheet), .empty, .toast {
+    display: none !important; }
+  .rcpt { max-width: 100%; }
+  .rcpt-title, .rcpt-table th, .rcpt-tot .grand {
+    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }

@@ -192,7 +192,7 @@ export default function Page() {
       <header className="bar">
         <div style={{ flex: 1 }}>
           <div className="brand">{settings.shop_name}</div>
-          <div className="sub">{me.role.toLowerCase()} · {me.name} · v21</div>
+          <div className="sub">{me.role.toLowerCase()} · {me.name} · v21.1</div>
         </div>
         {me.role === 'BILLING'
           ? <div className="pill" style={{ padding: '9px 12px' }}>{dshow(date)} · today only</div>
@@ -1117,7 +1117,7 @@ function ItemBill({ c, kind, close }) {
               </p>
             </div>
 
-            <div id="print-bill" className="print-only">
+            <div id="print-bill" className="bill-sheet">
               <div className="rcpt">
                 <div className="rcpt-head">
                   <div className="rcpt-name">{c.settings.shop_name}</div>
@@ -1165,7 +1165,7 @@ function ItemBill({ c, kind, close }) {
               </div>
             </div>
 
-            <button className="btn" onClick={() => window.print()}>Print bill</button>
+            <button className="btn" onClick={() => window.print()}>Print this bill</button>
             {kind === 'sale' && (
               <button className="btn ghost" style={{ marginTop: 10 }} disabled={phone.replace(/\D/g, '').length < 10}
                 onClick={sendWhatsApp}>
