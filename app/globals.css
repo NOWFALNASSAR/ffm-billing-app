@@ -81,11 +81,33 @@ input:focus, select:focus, textarea:focus { border-color: var(--mango); }
 .fs-foot { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: space-between;
   gap: 16px; padding: 14px 16px calc(14px + env(safe-area-inset-bottom)); background: var(--board); border-top: 1px solid var(--line); }
 
+/* --- printed receipt --- */
+.rcpt { font-family: 'Archivo', system-ui, sans-serif; color: #0b2b17; max-width: 320px; margin: 0 auto; }
+.rcpt-head { text-align: center; border-bottom: 2px solid #0b7a3b; padding-bottom: 8px; }
+.rcpt-name { font-family: 'Archivo Narrow', sans-serif; font-weight: 700; font-size: 22px; letter-spacing: .04em;
+  text-transform: uppercase; color: #0b7a3b; }
+.rcpt-tag { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; margin-top: 2px; }
+.rcpt-addr { font-size: 11px; margin-top: 2px; }
+.rcpt-title { background: #0b7a3b; color: #fff; text-align: center; font-weight: 700; font-size: 13px;
+  letter-spacing: .12em; padding: 4px; margin: 8px 0; }
+.rcpt-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px; font-size: 11px; }
+.rcpt-cust { font-size: 11px; margin-top: 6px; border-top: 1px dashed #999; padding-top: 4px; }
+.rcpt-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 8px; }
+.rcpt-table th { background: #ffd94a; border-top: 1px solid #0b7a3b; border-bottom: 1px solid #0b7a3b;
+  padding: 3px 2px; font-size: 10px; text-transform: uppercase; }
+.rcpt-table td { padding: 3px 2px; text-align: right; border-bottom: 1px dotted #bbb; }
+.rcpt-tot { margin-top: 8px; font-size: 12px; }
+.rcpt-tot > div { display: flex; justify-content: space-between; padding: 2px 0; }
+.rcpt-tot .grand { background: #ffd94a; font-weight: 700; font-size: 14px; padding: 5px 6px; margin-top: 4px; }
+.rcpt-pay { font-size: 11px; margin-top: 8px; border-top: 1px dashed #999; padding-top: 5px; }
+.rcpt-thanks { text-align: center; font-size: 12px; font-weight: 600; margin-top: 8px; color: #0b7a3b; }
+
 /* Only the bill goes to the printer. */
 .print-only { display: none; }
 @media print {
   body * { visibility: hidden; }
-  .print-only, .print-only * { visibility: visible; display: block; color: #000; background: #fff; }
+  .print-only, .print-only * { visibility: visible; }
+  .print-only { display: block; background: #fff; }
   .print-only { position: absolute; left: 0; top: 0; width: 100%; padding: 8px; }
   .print-only table, .print-only tr, .print-only td { display: table; width: 100%; }
   .print-only tr { display: table-row; }
