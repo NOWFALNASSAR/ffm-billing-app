@@ -192,7 +192,7 @@ export default function Page() {
       <header className="bar">
         <div style={{ flex: 1 }}>
           <div className="brand">{settings.shop_name}</div>
-          <div className="sub">{me.role.toLowerCase()} · {me.name} · v18.2</div>
+          <div className="sub">{me.role.toLowerCase()} · {me.name} · v19</div>
         </div>
         {me.role === 'BILLING'
           ? <div className="pill" style={{ padding: '9px 12px' }}>{dshow(date)} · today only</div>
@@ -234,6 +234,8 @@ function Sheets({ c, sheet, close }) {
   if (sheet === 'order') return <OrderForm c={c} close={close} />;
   if (sheet === 'stock') return <StockForm c={c} close={close} />;
   if (sheet === 'adjust') return <AdjustForm c={c} close={close} />;
+  if (sheet === 'bill_sale') return <ItemBill c={c} kind="sale" close={close} />;
+  if (sheet === 'bill_purchase') return <ItemBill c={c} kind="purchase" close={close} />;
   if (String(sheet).startsWith('list:')) return <DayList c={c} type={String(sheet).slice(5)} close={close} />;
   return <TxnForm c={c} type={sheet} close={close} />;
 }
@@ -414,6 +416,8 @@ function Entry(c) {
   const adminOnly = c.me.role === 'ADMIN'
     ? [['adjust', 'Adjust balance', 'Correct cash or reserve with a reason']] : [];
   const more = [
+    ['bill_sale', 'Item billing', 'Sell item-wise · optional'],
+    ['bill_purchase', 'Item purchase', 'Buy item-wise · optional'],
     ['party', 'Add supplier / customer', 'New name'],
     ['order', 'Pass an order', 'Short items to a supplier'],
     ['item', 'Add item', 'For order lists'],
@@ -709,11 +713,14 @@ function PartyForm({ c, close }) {
 function ItemForm({ c, close }) {
   const [name, setName] = useState('');
   const [unit, setUnit] = useState('kg');
+  const [category, setCategory] = useState('vegetables');
+  const [saleRate, setSaleRate] = useState('');
+  const [costRate, setCostRate] = useState('');
   const [supplierId, setSupplierId] = useState('');
   const [saved, setSaved] = useState(0);
   const save = async () => {
-    await c.run('item', { name, unit, supplierId: Number(supplierId) || null }, null, true);
-    setSaved((n) => n + 1); setName('');
+    await c.run('item', { name, unit, category, saleRate, costRate, supplierId: Number(supplierId) || null }, null, true);
+    setSaved((n) => n + 1); setName(''); setSaleRate(''); setCostRate('');
   };
   return (
     <div className="sheet" onClick={close}>
@@ -724,12 +731,24 @@ function ItemForm({ c, close }) {
         </p>
         <div className="f"><label className="lbl">Item name</label>
           <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Tomato" /></div>
+        <div className="f"><label className="lbl">Section</label>
+          <div className="tabs" style={{ padding: 0 }}>
+            {SECTIONS.map(([k, l]) => (
+              <button key={k} type="button" className={'tab' + (category === k ? ' on' : '')}
+                onClick={() => setCategory(k)}>{l}</button>))}
+          </div></div>
         <div className="f"><label className="lbl">Unit</label>
           <div className="tabs" style={{ padding: 0 }}>
             {['kg', 'box', 'bag', 'piece', 'bunch'].map((u) => (
               <button key={u} type="button" className={'tab' + (unit === u ? ' on' : '')}
                 onClick={() => setUnit(u)}>{u}</button>))}
           </div></div>
+        <div className="grid2">
+          <div className="f"><label className="lbl">Selling rate</label>
+            <input inputMode="decimal" value={saleRate} onChange={(e) => setSaleRate(e.target.value)} placeholder="0" /></div>
+          <div className="f"><label className="lbl">Cost rate</label>
+            <input inputMode="decimal" value={costRate} onChange={(e) => setCostRate(e.target.value)} placeholder="0" /></div>
+        </div>
         <PartyPicker c={c} kind="supplier" value={supplierId} onChange={setSupplierId} />
         <button className="btn" disabled={!name.trim()} onClick={save}>Save and add another</button>
         {saved > 0 && <p className="k" style={{ textAlign: 'center', marginTop: 12 }}>{saved} items added</p>}
@@ -859,6 +878,232 @@ function BillForm({ c, close }) {
         <p className="empty" style={{ fontSize: 12 }}>
           Photos are shrunk before saving. Keep the paper bills as well — this is for quick reference, not a legal record.
         </p>
+      </div>
+    </div>
+  );
+}
+
+/* ----------------------------- item billing ------------------------------- */
+const SECTIONS = [['vegetables', 'Vegetables'], ['fruits', 'Fruits'], ['grocery', 'Grocery']];
+
+function ItemBill({ c, kind, close }) {
+  const [stage, setStage] = useState('sections');   // sections → items → qty → pay → done
+  const [section, setSection] = useState('');
+  const [item, setItem] = useState(null);
+  const [qty, setQty] = useState('');
+  const [rate, setRate] = useState('');
+  const [cart, setCart] = useState([]);
+  const [custName, setCustName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [partyId, setPartyId] = useState('');
+  const [mode, setMode] = useState(kind === 'sale' ? 'cash' : 'credit');
+  const [busy, setBusy] = useState(false);
+
+  const total = cart.reduce((a, l) => a + l.qty * l.rate, 0);
+  const rateOf = (it) => Number(kind === 'sale' ? it.sale_rate : it.cost_rate) || 0;
+  const list = c.items.filter((i) => (i.category || 'vegetables') === section);
+
+  const pickItem = (it) => { setItem(it); setRate(String(rateOf(it) || '')); setQty(''); setStage('qty'); };
+
+  const addLine = () => {
+    const q = parseFloat(qty), r = parseFloat(rate);
+    if (!(q > 0) || !(r >= 0)) return;
+    setCart([...cart, { itemId: item.id, name: item.name, unit: item.unit, qty: q, rate: r }]);
+    setItem(null); setQty(''); setRate(''); setStage('items');
+  };
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await post('bill_doc', {
+        kind, date: c.date, lines: cart.map((l) => ({ itemId: l.itemId, qty: l.qty, rate: l.rate })),
+        custName, phone, partyId: kind === 'purchase' ? Number(partyId) || null : null, mode,
+      });
+      await c.refresh();
+      setStage('done');
+    } catch (e) { c.say(e.message); }
+    setBusy(false);
+  };
+
+  const upi = c.settings.upi_id;
+  const qrUrl = upi
+    ? 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' +
+      encodeURIComponent(`upi://pay?pa=${upi}&pn=${encodeURIComponent(c.settings.upi_name || c.settings.shop_name)}&am=${total.toFixed(2)}&cu=INR`)
+    : '';
+
+  return (
+    <div className="sheet" onClick={close}>
+      <div className="sheetin" onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div>
+            <div className="brand" style={{ fontSize: 18 }}>{kind === 'sale' ? 'Item billing' : 'Item purchase'}</div>
+            <div className="sub">{dshow(c.date)} · {cart.length} items · {money(total)}</div>
+          </div>
+          <button className="pill" onClick={close}>Close</button>
+        </div>
+
+        {/* --- sections --- */}
+        {stage === 'sections' && (
+          <>
+            <div className="grid2">
+              {SECTIONS.map(([k, l]) => (
+                <button key={k} className="tile" style={{ padding: '26px 12px' }}
+                  onClick={() => { setSection(k); setStage('items'); }}>
+                  <b style={{ fontSize: 20 }}>{l}</b>
+                  <em>{c.items.filter((i) => (i.category || 'vegetables') === k).length} items</em>
+                </button>
+              ))}
+            </div>
+            {cart.length > 0 && (
+              <button className="btn" style={{ marginTop: 14 }} onClick={() => setStage('pay')}>
+                Bill {money(total)} · {cart.length} items
+              </button>
+            )}
+          </>
+        )}
+
+        {/* --- item list --- */}
+        {stage === 'items' && (
+          <>
+            <button className="pill" onClick={() => setStage('sections')}>← Sections</button>
+            <div className="card" style={{ marginTop: 10 }}>
+              <span className="lbl">{SECTIONS.find((x) => x[0] === section)?.[1]}</span>
+              {list.length === 0
+                ? <p className="empty">No items in this section. Entry → Add item.</p>
+                : list.map((it) => (
+                  <button key={it.id} className="item" style={{ width: '100%', textAlign: 'left' }}
+                    onClick={() => pickItem(it)}>
+                    <div><b style={{ fontSize: 15 }}>{it.name}</b><small>per {it.unit}</small></div>
+                    <span className="v" style={{ color: 'var(--mango)' }}>{money(rateOf(it))}</span>
+                  </button>
+                ))}
+            </div>
+            {cart.length > 0 && (
+              <button className="btn" onClick={() => setStage('pay')}>
+                Bill {money(total)} · {cart.length} items
+              </button>
+            )}
+          </>
+        )}
+
+        {/* --- quantity --- */}
+        {stage === 'qty' && item && (
+          <>
+            <div className="card" style={{ marginTop: 0 }}>
+              <span className="lbl">{item.name} · per {item.unit}</span>
+              <div className="f" style={{ marginTop: 10 }}>
+                <label className="lbl">Quantity in {item.unit}</label>
+                <input inputMode="decimal" autoFocus value={qty} placeholder="0"
+                  onChange={(e) => setQty(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && addLine()}
+                  style={{ fontFamily: 'var(--mono)', fontSize: 30, padding: '18px 14px' }} />
+              </div>
+              <div className="f">
+                <label className="lbl">Rate today</label>
+                <input inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)}
+                  style={{ fontFamily: 'var(--mono)', fontSize: 20 }} />
+              </div>
+              <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Amount</b>
+                <b className="v" style={{ fontSize: 22, color: 'var(--mango)' }}>
+                  {money((parseFloat(qty) || 0) * (parseFloat(rate) || 0))}</b></div>
+            </div>
+            <button className="btn" disabled={!(parseFloat(qty) > 0)} onClick={addLine}>Add to bill</button>
+            <button className="btn ghost" style={{ marginTop: 10 }} onClick={() => setStage('items')}>Cancel</button>
+          </>
+        )}
+
+        {/* --- cart, customer, payment --- */}
+        {stage === 'pay' && (
+          <>
+            <div className="card" style={{ marginTop: 0 }}>
+              <span className="lbl">The bill</span>
+              {cart.map((l, i) => (
+                <div className="item" key={i}>
+                  <div><b style={{ fontSize: 14 }}>{l.name}</b>
+                    <small>{l.qty} {l.unit} × {money(l.rate)}</small></div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <span className="v">{money(l.qty * l.rate)}</span>
+                    <button className="pill" onClick={() => setCart(cart.filter((_, j) => j !== i))}>×</button>
+                  </div>
+                </div>
+              ))}
+              <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Total</b>
+                <b className="big" style={{ fontSize: 28, color: 'var(--mango)' }}>{money(total)}</b></div>
+            </div>
+
+            <button className="btn ghost" onClick={() => setStage('sections')}>+ Add more items</button>
+
+            {kind === 'purchase'
+              ? <div style={{ marginTop: 14 }}><PartyPicker c={c} kind="supplier" value={partyId} onChange={setPartyId} /></div>
+              : (
+                <div className="grid2" style={{ marginTop: 14 }}>
+                  <div className="f"><label className="lbl">Customer — optional</label>
+                    <input value={custName} onChange={(e) => setCustName(e.target.value)} placeholder="Skip if not needed" /></div>
+                  <div className="f"><label className="lbl">Phone — optional</label>
+                    <input inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} /></div>
+                </div>
+              )}
+
+            <div className="f"><label className="lbl">Paid by</label>
+              <div className="tabs" style={{ padding: 0 }}>
+                {['cash', 'credit'].map((m) => (
+                  <button key={m} className={'tab' + (mode === m ? ' on' : '')} onClick={() => setMode(m)}>{m}</button>))}
+              </div></div>
+
+            {kind === 'sale' && mode === 'cash' && (
+              <div className="card" style={{ textAlign: 'center' }}>
+                <span className="lbl">Scan to pay {money(total)}</span>
+                {qrUrl
+                  ? <img src={qrUrl} alt="UPI QR" style={{ width: 220, height: 220, borderRadius: 12, background: '#fff', padding: 8 }} />
+                  : <p className="empty">Add your UPI ID in Reports → Settings to show a QR here.</p>}
+                {upi && <p className="k" style={{ marginTop: 8 }}>{upi}</p>}
+              </div>
+            )}
+
+            <button className="btn" disabled={busy || cart.length === 0} onClick={save}>
+              {busy ? 'Saving…' : `Save bill ${money(total)}`}
+            </button>
+          </>
+        )}
+
+        {/* --- saved --- */}
+        {stage === 'done' && (
+          <>
+            <div className="card" style={{ marginTop: 0, textAlign: 'center' }}>
+              <div className="big" style={{ color: 'var(--leaf)' }}>{money(total)}</div>
+              <p className="k" style={{ marginTop: 8 }}>
+                Saved to the {kind === 'sale' ? 'sales' : 'purchase'} register with everything else.
+              </p>
+            </div>
+
+            <div id="print-bill" className="print-only">
+              <h3 style={{ textAlign: 'center', margin: '0 0 4px' }}>{c.settings.shop_name}</h3>
+              <p style={{ textAlign: 'center', margin: 0, fontSize: 12 }}>{dshow(c.date)}</p>
+              {custName && <p style={{ margin: '6px 0 0', fontSize: 12 }}>{custName} {phone}</p>}
+              <table style={{ width: '100%', fontSize: 12, marginTop: 8, borderCollapse: 'collapse' }}>
+                <tbody>
+                  {cart.map((l, i) => (
+                    <tr key={i}>
+                      <td>{l.name}</td>
+                      <td style={{ textAlign: 'right' }}>{l.qty} × {l.rate}</td>
+                      <td style={{ textAlign: 'right' }}>{(l.qty * l.rate).toFixed(2)}</td>
+                    </tr>
+                  ))}
+                  <tr><td colSpan={2}><b>Total</b></td>
+                    <td style={{ textAlign: 'right' }}><b>{total.toFixed(2)}</b></td></tr>
+                </tbody>
+              </table>
+              <p style={{ textAlign: 'center', fontSize: 11, marginTop: 8 }}>Thank you</p>
+            </div>
+
+            <button className="btn" onClick={() => window.print()}>Print bill</button>
+            <button className="btn ghost" style={{ marginTop: 10 }}
+              onClick={() => { setCart([]); setCustName(''); setPhone(''); setStage('sections'); }}>
+              New bill
+            </button>
+            <button className="btn ghost" style={{ marginTop: 10 }} onClick={close}>Done</button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -1105,7 +1350,9 @@ function Books(c) {
             const sup = c.parties.find((p) => p.id === i.supplier_id);
             return (
               <div className="item" key={i.id}>
-                <div><b style={{ fontSize: 14 }}>{i.name}</b><small>{i.unit}{sup ? ' · ' + sup.name : ''}</small></div>
+                <div><b style={{ fontSize: 14 }}>{i.name}</b>
+                  <small>{i.category || 'vegetables'} · {i.unit} · sell {money(i.sale_rate)} · cost {money(i.cost_rate)}
+                    {sup ? ' · ' + sup.name : ''}</small></div>
                 {c.me.role !== 'BILLING' &&
                   <button className="pill" onClick={() => c.run('removeItem', { id: i.id }, 'Item removed')}>remove</button>}
               </div>
@@ -1536,6 +1783,8 @@ function Reports(c) {
         })()}
       </div>
 
+      <Pricing c={c} />
+
       <Investment c={c} />
 
       <div className="card">
@@ -1550,6 +1799,63 @@ function Reports(c) {
 
       <SettingsCard c={c} />
     </>
+  );
+}
+
+/* ------------------------------ pricing report ---------------------------- */
+function Pricing({ c }) {
+  const pricing = c.data.pricing || [];
+  const rows = c.items.map((it) => {
+    const sale = pricing.find((p) => p.item_id === it.id && p.kind === 'sale');
+    const buy = pricing.find((p) => p.item_id === it.id && p.kind === 'purchase');
+    const avgSale = Number(sale?.avg_rate || it.sale_rate || 0);
+    const avgCost = Number(buy?.avg_rate || it.cost_rate || 0);
+    const margin = avgSale && avgCost ? ((avgSale - avgCost) / avgSale) * 100 : 0;
+    return {
+      it, avgSale, avgCost, margin,
+      soldQty: Number(sale?.qty || 0), soldValue: Number(sale?.amount || 0),
+      minSale: Number(sale?.min_rate || 0), maxSale: Number(sale?.max_rate || 0),
+    };
+  }).filter((r) => r.avgSale || r.avgCost).sort((a, b) => b.soldValue - a.soldValue);
+
+  const withMargin = rows.filter((r) => r.margin);
+  const avgMargin = withMargin.length
+    ? withMargin.reduce((a, r) => a + r.margin, 0) / withMargin.length : 0;
+
+  if (rows.length === 0) {
+    return (
+      <div className="card">
+        <span className="lbl">Pricing and margin</span>
+        <p className="empty">Nothing yet. Use Entry → Item billing and Item purchase, and rates build up here.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card">
+      <span className="lbl">Pricing and margin · last 90 days</span>
+      <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Average margin</b>
+        <b className="v" style={{ fontSize: 19, color: avgMargin >= 0 ? 'var(--leaf)' : 'var(--beet)' }}>
+          {avgMargin.toFixed(1)}%</b></div>
+      {rows.map((r) => (
+        <div key={r.it.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <b style={{ fontSize: 14 }}>{r.it.name}</b>
+            <span className="v" style={{ color: r.margin >= 0 ? 'var(--leaf)' : 'var(--beet)' }}>
+              {r.margin ? r.margin.toFixed(1) + '%' : '—'}</span>
+          </div>
+          <small style={{ color: 'var(--muted)', fontSize: 12 }}>
+            cost {money(r.avgCost)} → sell {money(r.avgSale)} per {r.it.unit}
+            {r.minSale && r.maxSale && r.minSale !== r.maxSale
+              ? ` · sold between ${money(r.minSale)} and ${money(r.maxSale)}` : ''}
+            {r.soldQty ? ` · ${r.soldQty} ${r.it.unit} sold, ${money(r.soldValue)}` : ''}
+          </small>
+        </div>
+      ))}
+      <p className="empty" style={{ fontSize: 12, padding: '10px 0 0' }}>
+        Margin is on the selling rate. Only items billed item-wise appear here.
+      </p>
+    </div>
   );
 }
 
@@ -1656,6 +1962,7 @@ function Staff({ c }) {
 function SettingsCard({ c }) {
   const [form, setForm] = useState({
     shop_name: c.settings.shop_name, gp_rate: c.settings.gp_rate, cash_alert: c.settings.cash_alert,
+    upi_id: c.settings.upi_id || '', upi_name: c.settings.upi_name || '',
   });
   const [oldPin, setOldPin] = useState('');
   const [newPin, setNewPin] = useState('');
@@ -1672,6 +1979,13 @@ function SettingsCard({ c }) {
         <>
           <div className="f"><label className="lbl">Shop name</label>
             <input value={form.shop_name} onChange={(e) => setForm({ ...form, shop_name: e.target.value })} /></div>
+          <div className="grid2">
+            <div className="f"><label className="lbl">UPI ID for the bill QR</label>
+              <input value={form.upi_id || ''} onChange={(e) => setForm({ ...form, upi_id: e.target.value })}
+                placeholder="name@bank" /></div>
+            <div className="f"><label className="lbl">Name on the QR</label>
+              <input value={form.upi_name || ''} onChange={(e) => setForm({ ...form, upi_name: e.target.value })} /></div>
+          </div>
           <div className="grid2">
             <div className="f"><label className="lbl">GP % of sales</label>
               <input inputMode="decimal" value={form.gp_rate} onChange={(e) => setForm({ ...form, gp_rate: e.target.value })} /></div>
