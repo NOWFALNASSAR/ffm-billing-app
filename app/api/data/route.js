@@ -7,7 +7,7 @@ export async function GET() {
   const me = await getUser();
   if (!me) return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
   try {
-    const [parties, entries, closings, audit, settings, users, items, orders, bills, stock, pricing, docs] = await Promise.all([
+    const [parties, entries, closings, audit, settings, users, items, orders, bills, stock, pricing, docs, customers] = await Promise.all([
       sql`SELECT id, kind, name, phone, opening FROM parties WHERE is_active ORDER BY name`,
       sql`SELECT id, type, biz_date::text AS date, party_id, amount, mode, category, ref_no, remarks,
                  created_by, is_setup
@@ -35,11 +35,22 @@ export async function GET() {
            WHERE d.biz_date > CURRENT_DATE - 90
            GROUP BY l.item_id, d.kind`,
       sql`SELECT d.id, d.kind, d.biz_date::text AS date, d.cust_name, d.phone, d.total, d.created_by
-            FROM docs d ORDER BY d.id DESC LIMIT 40`,
+            FROM docs d ORDER BY d.id DESC LIMIT 60`,
+      // one row per shopper, built from their bills
+      sql`SELECT phone,
+                 MAX(cust_name) AS name,
+                 COUNT(*)::int AS visits,
+                 SUM(total)::numeric(14,2) AS spent,
+                 AVG(total)::numeric(14,2) AS avg_bill,
+                 MAX(biz_date)::text AS last_visit,
+                 MIN(biz_date)::text AS first_visit
+            FROM docs
+           WHERE kind = 'sale' AND phone IS NOT NULL AND phone <> ''
+           GROUP BY phone ORDER BY MAX(biz_date) DESC LIMIT 300`,
     ]);
     return NextResponse.json({
       me, parties, entries, closings, audit, settings: settings[0], users, items, orders, bills, stock,
-      pricing, docs,
+      pricing, docs, customers,
     });
   } catch (e) {
     return NextResponse.json({ error: String(e?.message || e) }, { status: 500 });
