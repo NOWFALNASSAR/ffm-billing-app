@@ -120,11 +120,6 @@ export default function Page() {
   const s = (type) => dayTx.filter((t) => t.type === type).reduce((a, b) => a + Number(b.amount), 0);
   const sales = s('sale'), purch = s('purchase'), exp = s('expense'), waste = s('wastage');
   const purchRet = s('purchase_return');
-  const purchCash = dayTx.filter((t) => t.type === 'purchase' && t.mode === 'cash')
-    .reduce((a, b) => a + Number(b.amount), 0);
-  const purchCredit = dayTx.filter((t) => t.type === 'purchase' && t.mode === 'credit')
-    .reduce((a, b) => a + Number(b.amount), 0);
-  const payments = s('supplier_payment');
   const gpRate = Number(settings.gp_rate);
   const gp = sales * (gpRate / 100);
 
@@ -151,8 +146,6 @@ export default function Page() {
   const moneyIn = dayTx.reduce((a, t) => a + Math.max(0, potEffect(t)), 0);
   const moneyOut = dayTx.reduce((a, t) => a + Math.max(0, -potEffect(t)), 0);
   const expectedTotal = openingTotal + moneyIn - moneyOut;      // cash + bank together
-  const reservedToday = dayTx.reduce((a, t) => a + Math.max(0, bankMove(t)), 0);
-  const takenBackToday = dayTx.reduce((a, t) => a + Math.max(0, -bankMove(t)), 0);
   const bankTotal = openingBank + bankedToday;                 // total set aside
   const reserveByName = {};
   live.filter((t) => t.date <= date && bankMove(t) !== 0).forEach((t) => {
@@ -164,11 +157,9 @@ export default function Page() {
 
   const c = {
     data, me, parties, entries, live, closings, settings, items, orders, bills, stock, users,
-    date, dayTx, closing, dayLocked, sales, purch, purchRet, purchCash, purchCredit, payments,
-    exp, waste, gp, gpRate,
+    date, dayTx, closing, dayLocked, sales, purch, purchRet, exp, waste, gp, gpRate,
     openingCash, openingBank, openingTotal, cashIn, cashOut, expectedCash,
     moneyIn, moneyOut, expectedTotal, bankedToday, bankTotal, reserveByName, diffToDate,
-    reservedToday, takenBackToday,
     run, say, setSheet, refresh, setDate,
   };
 
@@ -177,7 +168,7 @@ export default function Page() {
       <header className="bar">
         <div style={{ flex: 1 }}>
           <div className="brand">{settings.shop_name}</div>
-          <div className="sub">{me.role.toLowerCase()} · {me.name} · v16</div>
+          <div className="sub">{me.role.toLowerCase()} · {me.name} · v14</div>
         </div>
         {me.role === 'BILLING'
           ? <div className="pill" style={{ padding: '9px 12px' }}>{dshow(date)} · today only</div>
@@ -288,26 +279,31 @@ function Home(c) {
   return (
     <>
       <div className="card">
-        <span className="lbl">Cash in drawer · {dshow(c.date)}</span>
-        <div className="big" style={{ color: c.expectedCash < 0 ? 'var(--beet)' : 'var(--mango)' }}>
-          {money(c.expectedCash)}</div>
-        <div className="rowb" style={{ marginTop: 10 }}><span className="k">Opening</span>
-          <span className="v">{money(c.openingCash)}</span></div>
+        <span className="lbl">Money in hand · {dshow(c.date)}</span>
+        <div className="big" style={{ color: 'var(--mango)' }}>{money(c.expectedTotal)}</div>
+        <div className="k" style={{ marginTop: 4 }}>drawer {money(c.expectedCash)} · reserved {money(c.bankTotal)}</div>
+        <div className="rowb" style={{ marginTop: 10 }}><span className="k">Opening — cash + bank</span>
+          <span className="v">{money(c.openingTotal)}</span></div>
         <Row label="Cash in" value={c.cashIn} type="cash_in_all" colour="var(--leaf)" />
         <Row label="Cash out" value={c.cashOut} type="cash_out_all" colour="var(--beet)" />
+        <div className="rowb"><span className="k">Of which sent to bank</span><span className="v">{money(c.bankedToday)}</span></div>
+        <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Cash in drawer now</b>
+          <b className="v" style={{ fontSize: 19 }}>{money(c.expectedCash)}</b></div>
+        <div className="rowb"><span className="k">In bank so far</span><span className="v">{money(c.bankTotal)}</span></div>
       </div>
 
       <div className="card">
-        <span className="lbl">Today</span>
-        <Row label="Sales" value={c.sales} type="sale" />
-        <div className="rowb"><span className="k">Purchase — cash</span><span className="v">{money(c.purchCash)}</span></div>
-        <div className="rowb"><span className="k">Purchase — credit</span><span className="v">{money(c.purchCredit)}</span></div>
-        <Row label="Purchase return" value={c.purchRet} type="purchase_return" />
-        <Row label="Supplier payments" value={c.payments} type="supplier_payment" />
+        <span className="lbl">The day's business</span>
+        <Row label="Sales — all modes" value={c.sales} type="sale" />
+        <Row label="Purchases" value={c.purch} type="purchase" />
+        <Row label="Purchase returns" value={c.purchRet} type="purchase_return" />
         <Row label="Expenses" value={c.exp} type="expense" />
         <Row label="Wastage" value={c.waste} type="wastage" />
-        <div className="rowb"><span className="k">GP at {c.gpRate}%</span>
+        <div className="rowb"><span className="k">GP at {c.gpRate}% of sales</span>
           <span className="v" style={{ color: 'var(--leaf)' }}>{money(c.gp)}</span></div>
+        <div className="rowb"><span className="k">GP after expenses and wastage</span>
+          <span className="v" style={{ color: c.gp - c.exp - c.waste >= 0 ? 'var(--leaf)' : 'var(--beet)' }}>
+            {money(c.gp - c.exp - c.waste)}</span></div>
       </div>
 
       <div className="card">
@@ -375,39 +371,39 @@ function DayList({ c, type, close }) {
 /* ---------------------------------- entry -------------------------------- */
 function Entry(c) {
   const daily = [
-    ['sale', 'Sale', 'Money in'],
+    ['sale', 'Sale', 'Cash, UPI or card'],
     ['purchase', 'Purchase', 'Goods bought'],
-    ['expense', 'Expense', 'Always cash'],
-    ['supplier_payment', 'Supplier payment', 'Pay a supplier'],
-    ['bank_deposit', 'Reserve money', 'Set aside with a name'],
-    ['bank_withdraw', 'Take back reserve', 'Return it to the drawer'],
-    ['wastage', 'Wastage', 'Spoiled or thrown'],
     ['purchase_return', 'Purchase return', 'Goods sent back'],
     ['customer_collection', 'Collection', 'Credit customer paid'],
-    ['cash_in', 'Cash in', 'Any other cash in'],
-    ['cash_out', 'Cash out', 'Any other cash out'],
+    ['supplier_payment', 'Supplier payment', 'Mostly cash'],
+    ['expense', 'Expense', 'Always cash'],
+    ['wastage', 'Wastage', 'Spoiled or thrown'],
+    ['bank_deposit', 'Reserve money', 'Set aside — bank or a name'],
+    ['bank_withdraw', 'Take back reserve', 'Bring it back to the drawer'],
+    ['cash_in', 'Cash in', 'Any other cash received'],
+    ['cash_out', 'Cash out', 'Any other cash paid'],
   ];
   const more = [
-    ['party', 'Add supplier / customer', 'New name'],
+    ['party', 'Add supplier / customer', 'New name in the book'],
+    ['item', 'Add item', 'For shortage orders'],
     ['order', 'Pass an order', 'Short items to a supplier'],
-    ['item', 'Add item', 'For order lists'],
-    ['bill', 'Upload a bill', 'Photo of a bill'],
-    ['stock', 'Stock value', 'From a physical count'],
-    ['setup', 'Opening & investment', 'Before the start date'],
+    ['bill', 'Upload a bill', 'Photo of a purchase bill'],
+    ['stock', 'Stock value', 'Physical count value'],
     ['bulk', 'Bulk upload', 'Many entries from CSV'],
+    ['setup', 'Opening & investment', 'Before the start date'],
   ];
   return (
     <>
       {c.dayLocked && <div className="warn">{dshow(c.date)} is closed. Reopen it from Day end before adding entries.</div>}
       <div className="grid2" style={{ marginTop: 12 }}>
-        {daily.map(([id, t, sub]) => (
-          <button key={id} className="tile" onClick={() => c.setSheet(id)}><b>{t}</b><em>{sub}</em></button>
+        {daily.map(([id, t, s]) => (
+          <button key={id} className="tile" onClick={() => c.setSheet(id)}><b>{t}</b><em>{s}</em></button>
         ))}
       </div>
-      <span className="lbl" style={{ marginTop: 22, display: 'block' }}>Set up and extras</span>
+      <span className="lbl" style={{ marginTop: 22, display: 'block' }}>Other</span>
       <div className="grid2">
-        {more.map(([id, t, sub]) => (
-          <button key={id} className="tile" onClick={() => c.setSheet(id)}><b>{t}</b><em>{sub}</em></button>
+        {more.map(([id, t, s]) => (
+          <button key={id} className="tile" onClick={() => c.setSheet(id)}><b>{t}</b><em>{s}</em></button>
         ))}
       </div>
     </>
@@ -979,7 +975,7 @@ function Books(c) {
   return (
     <>
       <div className="tabs">
-        {[['ledger', 'Ledger'], ['reserve', 'Reserve'], ['supplier', 'Payable'], ['customer', 'Receivable'], ['orders', 'Orders'], ['items', 'Items'], ['bills', 'Bills']].map(([k, l]) => (
+        {[['ledger', 'Ledger'], ['supplier', 'Payable'], ['customer', 'Receivable'], ['orders', 'Orders'], ['items', 'Items'], ['bills', 'Bills']].map(([k, l]) => (
           <button key={k} className={'tab' + (view === k ? ' on' : '')} onClick={() => setView(k)}>{l}</button>))}
       </div>
 
@@ -1001,8 +997,6 @@ function Books(c) {
       )}
 
       {view === 'ledger' && <Ledger c={c} />}
-
-      {view === 'reserve' && <Reserve c={c} />}
 
       {view === 'orders' && <Orders c={c} />}
 
@@ -1037,50 +1031,6 @@ function Books(c) {
           })}
         </div>
       )}
-    </>
-  );
-}
-
-function Reserve({ c }) {
-  const names = Object.entries(c.reserveByName).filter(([, v]) => v !== 0).sort((a, b) => b[1] - a[1]);
-  const moves = c.live.filter((t) => bankMove(t) !== 0)
-    .slice().sort((a, b) => (a.date === b.date ? b.id - a.id : a.date < b.date ? 1 : -1));
-
-  return (
-    <>
-      <div className="card">
-        <span className="lbl">Reserve fund — total</span>
-        <div className="big" style={{ color: 'var(--mango)' }}>{money(c.bankTotal)}</div>
-        <p className="k" style={{ marginTop: 6 }}>
-          Held aside, in a bank or with a person. Not part of the drawer and not counted in the
-          daily figures — take it back any time and it returns to the cash.
-        </p>
-      </div>
-
-      <div className="card">
-        <span className="lbl">Held with</span>
-        {names.length === 0
-          ? <p className="empty">Nothing reserved yet. Entry → Reserve money.</p>
-          : names.map(([n, v]) => (
-            <div className="rowb" key={n}><span className="k">{n}</span>
-              <span className="v" style={{ fontSize: 16 }}>{money(v)}</span></div>
-          ))}
-      </div>
-
-      <div className="card">
-        <span className="lbl">Every reserve movement</span>
-        {moves.length === 0 ? <p className="empty">No movements yet.</p> : moves.map((t) => {
-          const m = bankMove(t);
-          return (
-            <div className="item" key={t.id}>
-              <div><b style={{ fontSize: 14 }}>{t.category || 'Unnamed'}</b>
-                <small>{dshow(t.date)} · {m > 0 ? 'reserved' : 'taken back'} · by {t.created_by}</small></div>
-              <span className="v" style={{ color: m > 0 ? 'var(--mango)' : 'var(--leaf)' }}>
-                {m > 0 ? '+' : '−'}{money(Math.abs(m))}</span>
-            </div>
-          );
-        })}
-      </div>
     </>
   );
 }
@@ -1211,23 +1161,16 @@ function DayClose(c) {
 
   const notes = DENOMS.reduce((a, d) => a + d * (qty[d] || 0), 0);
   const counted = DENOMS.some((d) => qty[d] > 0);
-  const diff = counted ? notes - c.expectedCash : 0;      // excess (+) or short (−)
-  const closingDrawer = counted ? notes : c.expectedCash;
-  const reserveBalance = c.bankTotal;
+  const inHand = notes + c.bankTotal;                    // drawer + everything reserved
+  const diff = counted ? inHand - c.expectedTotal : 0;
+  const closingCash = counted ? notes : c.expectedCash;
+  const closingTotal = closingCash + c.bankTotal;
   const alert = Number(c.settings.cash_alert);
 
   const t = (type) => c.dayTx.filter((x) => x.type === type).reduce((a, b) => a + Number(b.amount), 0);
   const payments = t('supplier_payment');
-  const cashPurch = c.dayTx.filter((x) => x.type === 'purchase' && x.mode === 'cash')
-    .reduce((a, b) => a + Number(b.amount), 0);
-  const otherIn = c.moneyIn - c.sales;
   const oldDue = c.parties.filter((p) => p.kind === 'supplier').reduce((a, p) => a + outstanding(c, p.id), 0);
   const gpPct = c.sales ? (c.gp / c.sales) * 100 : 0;
-
-  const Line = ({ label, value, sign }) => (
-    <div className="rowb"><span className="k">{label}</span>
-      <span className="v">{sign}{money(Math.abs(value))}</span></div>
-  );
 
   const reopen = () => {
     const reason = window.prompt('Reason for reopening this day?');
@@ -1238,21 +1181,17 @@ function DayClose(c) {
     <>
       <div className="card">
         <span className="lbl">Day closing · {dshow(c.date)}</span>
-        <Line label="Opening cash" value={c.openingCash} sign="" />
-        <Line label="Sales" value={c.sales} sign="+" />
-        {otherIn > 0 && <Line label="Other money in" value={otherIn} sign="+" />}
-        {c.takenBackToday > 0 && <Line label="Reserve taken back" value={c.takenBackToday} sign="+" />}
-        <Line label="Expenses" value={c.exp} sign="−" />
-        <Line label="Supplier payments" value={payments} sign="−" />
-        {cashPurch > 0 && <Line label="Cash purchases" value={cashPurch} sign="−" />}
-        <Line label="Reserved today" value={c.reservedToday} sign="−" />
-        <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Closing cash expected</b>
-          <b className="v" style={{ fontSize: 19, color: c.expectedCash < 0 ? 'var(--beet)' : 'var(--chalk)' }}>
-            {money(c.expectedCash)}</b></div>
+        <div className="rowb"><span className="k">Opening cash</span><span className="v">{money(c.openingTotal)}</span></div>
+        <div className="rowb"><span className="k">Sales</span><span className="v">+{money(c.sales)}</span></div>
+        <div className="rowb"><span className="k">Other money in</span><span className="v">+{money(c.moneyIn - c.sales)}</span></div>
+        <div className="rowb"><span className="k">Money out</span><span className="v">−{money(c.moneyOut)}</span></div>
+        <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Balance expecting</b>
+          <b className="v" style={{ fontSize: 19, color: c.expectedTotal < 0 ? 'var(--beet)' : 'var(--chalk)' }}>
+            {money(c.expectedTotal)}</b></div>
       </div>
 
       <div className="card">
-        <span className="lbl">Count the drawer</span>
+        <span className="lbl">In hand — drawer + reserved</span>
         {DENOMS.map((d) => (
           <div className="den" key={d}>
             <b>₹{d}</b>
@@ -1261,19 +1200,19 @@ function DayClose(c) {
             <span className="amt">{money(d * (qty[d] || 0))}</span>
           </div>
         ))}
-        <div className="rowb" style={{ marginTop: 10 }}><span className="k">Counted</span>
+        <div className="rowb" style={{ marginTop: 10 }}><span className="k">Counted in drawer</span>
           <span className="v">{money(notes)}</span></div>
-        <div className="rowb"><span className="k">Expected</span><span className="v">{money(c.expectedCash)}</span></div>
-        <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>
-          {diff >= 0 ? 'Excess' : 'Short'}</b>
+        <div className="rowb"><span className="k">Reserved</span><span className="v">{money(c.bankTotal)}</span></div>
+        <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>In hand (drawer + reserved)</b>
+          <b className="v" style={{ fontSize: 19 }}>{money(inHand)}</b></div>
+        <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Difference</b>
           <b className="diff" style={{ color: diff === 0 ? 'var(--leaf)' : 'var(--beet)' }}>
             {diff > 0 ? '+' : ''}{money(diff)}</b></div>
-        {!counted && <p className="k">Not counted — the expected figure carries as it is.</p>}
-        {counted && diff !== 0 && <p className="k">This is added to the closing balance and kept in the ledger.</p>}
+        {!counted && <p className="k">Not counted yet — the books figure carries as it is.</p>}
         {counted && Math.abs(diff) >= alert && !c.dayLocked && (
           <div className="warn">
             {Math.abs(diff) > 10 * alert
-              ? 'A gap this large is nearly always a missing or duplicated entry. Check the ledger before closing.'
+              ? 'A gap this large is nearly always a missing or duplicated entry, not missing cash. Check the ledger before closing.'
               : `Difference is over ${money(alert)}. Recount before closing.`}
           </div>
         )}
@@ -1281,23 +1220,23 @@ function DayClose(c) {
 
       <div className="card">
         <span className="lbl">The day's trade</span>
-        <Line label="Purchase — cash" value={cashPurch} sign="" />
-        <Line label="Purchase — credit" value={c.purchCredit} sign="" />
-        <Line label="Purchase return" value={c.purchRet} sign="" />
-        <Line label="Payment" value={payments} sign="" />
-        <Line label="Old due — payable" value={oldDue} sign="" />
-        <Line label="Expense" value={c.exp} sign="" />
-        <Line label="Wastage" value={c.waste} sign="" />
+        <div className="rowb"><span className="k">Purchase</span><span className="v">{money(c.purch)}</span></div>
+        <div className="rowb"><span className="k">Purchase return</span><span className="v">{money(c.purchRet)}</span></div>
+        <div className="rowb"><span className="k">Payment</span><span className="v">{money(payments)}</span></div>
+        <div className="rowb"><span className="k">Old due — total payable</span><span className="v">{money(oldDue)}</span></div>
+        <div className="rowb"><span className="k">Expense</span><span className="v">{money(c.exp)}</span></div>
         <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>GP {gpPct.toFixed(0)}%</b>
           <b className="v" style={{ color: 'var(--leaf)' }}>{money(c.gp)}</b></div>
       </div>
 
       <div className="card">
         <span className="lbl">Carried to tomorrow</span>
-        <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Opening cash</b>
-          <b className="big" style={{ fontSize: 26, color: closingDrawer < 0 ? 'var(--beet)' : 'var(--mango)' }}>
-            {money(closingDrawer)}</b></div>
-
+        <div className="rowb"><span className="k">Drawer</span>
+          <span className="v" style={{ color: closingCash < 0 ? 'var(--beet)' : 'var(--chalk)' }}>{money(closingCash)}</span></div>
+        <div className="rowb"><span className="k">Reserved</span><span className="v">{money(c.bankTotal)}</span></div>
+        <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Opening tomorrow</b>
+          <b className="big" style={{ fontSize: 26, color: closingTotal < 0 ? 'var(--beet)' : 'var(--mango)' }}>
+            {money(closingTotal)}</b></div>
       </div>
 
       {c.dayLocked ? (
@@ -1309,10 +1248,10 @@ function DayClose(c) {
         <button className="btn" style={{ marginTop: 14 }}
           onClick={() => {
             if (Math.abs(diff) > 10 * alert &&
-              !window.confirm(`The count differs by ${money(Math.abs(diff))}. Close anyway?`)) return;
+              !window.confirm(`The count differs from the books by ${money(Math.abs(diff))}. Close anyway?`)) return;
             c.run('close', {
-              date: c.date, opening: c.openingCash, expected: c.expectedCash,
-              actual: closingDrawer, bank: reserveBalance, denoms: qty, deposit: 0,
+              date: c.date, opening: c.openingTotal, expected: c.expectedTotal,
+              actual: closingCash, bank: c.bankTotal, denoms: qty, deposit: 0,
               adjust: counted ? diff : 0,
             }, 'Day closed');
           }}>
@@ -1338,11 +1277,6 @@ function Reports(c) {
   const s = (type) => rows.filter((t) => t.type === type).reduce((a, b) => a + Number(b.amount), 0);
   const sales = s('sale'), purch = s('purchase'), exp = s('expense'), waste = s('wastage');
   const purchRet = s('purchase_return');
-  const purchCashP = rows.filter((t) => t.type === 'purchase' && t.mode === 'cash')
-    .reduce((a, b) => a + Number(b.amount), 0);
-  const purchCreditP = rows.filter((t) => t.type === 'purchase' && t.mode === 'credit')
-    .reduce((a, b) => a + Number(b.amount), 0);
-  const paymentsP = s('supplier_payment');
   const banked = s('bank_deposit');
   const returns = purchRet;
   const gp = sales * (c.gpRate / 100);
@@ -1379,15 +1313,13 @@ function Reports(c) {
         <div className="rowb"><span className="k">Wastage</span><span className="v">{money(waste)}</span></div>
         <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Left after expenses and wastage</b>
           <b className="v" style={{ color: gp - exp - waste >= 0 ? 'var(--leaf)' : 'var(--beet)' }}>{money(gp - exp - waste)}</b></div>
-        <div className="rowb"><span className="k">Purchase — cash</span><span className="v">{money(purchCashP)}</span></div>
-        <div className="rowb"><span className="k">Purchase — credit</span><span className="v">{money(purchCreditP)}</span></div>
+        <div className="rowb"><span className="k">Purchases</span><span className="v">{money(purch)}</span></div>
         <div className="rowb"><span className="k">Purchase returns</span><span className="v">{money(returns)}</span></div>
-        <div className="rowb"><span className="k">Supplier payments</span><span className="v">{money(paymentsP)}</span></div>
         <div className="rowb"><span className="k">Cash in drawer</span><span className="v">{money(c.expectedCash)}</span></div>
-
+        <div className="rowb"><span className="k">Reserved</span><span className="v">{money(c.bankTotal)}</span></div>
         <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Money in hand — cash + bank</b>
           <b className="v" style={{ color: 'var(--leaf)' }}>{money(c.expectedCash + c.bankTotal)}</b></div>
-
+        <div className="rowb"><span className="k">Reserved in this period</span><span className="v">{money(banked)}</span></div>
         <div className="rowb"><span className="k">Supplier payable</span><span className="v">{money(payable)}</span></div>
         <div className="rowb"><span className="k">Customer receivable</span><span className="v">{money(receivable)}</span></div>
       </div>
@@ -1416,6 +1348,22 @@ function Reports(c) {
             </div>
           </div>
         ))}
+      </div>
+
+      <div className="card">
+        <span className="lbl">Reserved money</span>
+        {Object.entries(c.reserveByName).filter(([, v]) => v !== 0).length === 0
+          ? <p className="empty">Nothing reserved. Entry → Reserve money to set cash aside with a name.</p>
+          : (
+            <>
+              {Object.entries(c.reserveByName).filter(([, v]) => v !== 0)
+                .sort((a, b) => b[1] - a[1]).map(([n, v]) => (
+                  <div className="rowb" key={n}><span className="k">{n}</span><span className="v">{money(v)}</span></div>
+                ))}
+              <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Total reserved</b>
+                <b className="v" style={{ fontSize: 19, color: 'var(--mango)' }}>{money(c.bankTotal)}</b></div>
+            </>
+          )}
       </div>
 
       <Investment c={c} />
