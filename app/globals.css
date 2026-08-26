@@ -71,3 +71,14 @@ input:focus, select:focus, textarea:focus { border-color: var(--mango); }
 .warn { background: #3A2412; border: 1px solid #6B4A1E; color: #F5C77E; border-radius: 12px; padding: 12px; font-size: 13px; line-height: 1.5; margin-top: 12px; }
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 86px; background: var(--chalk); color: var(--ink);
   font-weight: 700; padding: 11px 18px; border-radius: 999px; z-index: 60; font-size: 14px; box-shadow: 0 8px 26px rgba(0,0,0,.4); }
+
+/* Only the bill goes to the printer. */
+.print-only { display: none; }
+@media print {
+  body * { visibility: hidden; }
+  .print-only, .print-only * { visibility: visible; display: block; color: #000; background: #fff; }
+  .print-only { position: absolute; left: 0; top: 0; width: 100%; padding: 8px; }
+  .print-only table, .print-only tr, .print-only td { display: table; width: 100%; }
+  .print-only tr { display: table-row; }
+  .print-only td { display: table-cell; }
+}
