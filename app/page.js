@@ -192,7 +192,7 @@ export default function Page() {
       <header className="bar">
         <div style={{ flex: 1 }}>
           <div className="brand">{settings.shop_name}</div>
-          <div className="sub">{me.role.toLowerCase()} · {me.name} · v18</div>
+          <div className="sub">{me.role.toLowerCase()} · {me.name} · v18.1</div>
         </div>
         {me.role === 'BILLING'
           ? <div className="pill" style={{ padding: '9px 12px' }}>{dshow(date)} · today only</div>
@@ -1139,6 +1139,14 @@ function Reserve({ c }) {
       <div className="card">
         <span className="lbl">Reserve fund — total</span>
         <div className="big" style={{ color: 'var(--mango)' }}>{money(c.bankTotal)}</div>
+        <div className="rowb" style={{ marginTop: 10 }}><span className="k">Opening reserve</span>
+          <span className="v">{money(c.openingBank)}</span></div>
+        <div className="rowb"><span className="k">Added today</span>
+          <span className="v">+{money(c.reservedToday)}</span></div>
+        <div className="rowb"><span className="k">Taken back today</span>
+          <span className="v">−{money(c.takenBackToday)}</span></div>
+        <div className="rowb"><b className="k" style={{ color: 'var(--chalk)' }}>Reserve balance</b>
+          <b className="v" style={{ fontSize: 19, color: 'var(--mango)' }}>{money(c.bankTotal)}</b></div>
         <p className="k" style={{ marginTop: 6 }}>
           Held aside, in a bank or with a person. Not part of the drawer and not counted in the
           daily figures — take it back any time and it returns to the cash.
