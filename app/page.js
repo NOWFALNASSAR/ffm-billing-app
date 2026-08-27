@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 
 /* ---------------------------------- utils -------------------------------- */
 const today = () => new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
@@ -192,7 +192,7 @@ export default function Page() {
       <header className="bar">
         <div style={{ flex: 1 }}>
           <div className="brand">{settings.shop_name}</div>
-          <div className="sub">{me.role.toLowerCase()} · {me.name} · v22</div>
+          <div className="sub">{me.role.toLowerCase()} · {me.name} · v23</div>
         </div>
         {me.role === 'BILLING'
           ? <div className="pill" style={{ padding: '9px 12px' }}>{dshow(date)} · today only</div>
@@ -513,6 +513,7 @@ function TxnForm({ c, type, close }) {
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(0);
   const [lastAmt, setLastAmt] = useState(0);
+  const amountRef = useRef(null);
 
   const amt = parseFloat(amount) || 0;
   const out = partyId ? outstanding(c, Number(partyId)) : 0;
@@ -530,6 +531,7 @@ function TxnForm({ c, type, close }) {
     setBusy(false);
     setSaved((n) => n + 1); setLastAmt(amt);
     setAmount(''); setRef(''); setRemarks('');
+    amountRef.current?.focus();          // straight back to the amount for the next one
   };
 
   return (
@@ -539,6 +541,12 @@ function TxnForm({ c, type, close }) {
           <div><div className="brand" style={{ fontSize: 18 }}>{LABEL[type]}</div>
             <div className="sub">{dshow(c.date)}</div></div>
           <button className="pill" onClick={close}>Close</button>
+        </div>
+
+        <div className="save-top">
+          <button className="btn" disabled={!ok || busy} onClick={save}>
+            {busy ? 'Saving…' : 'Save' + (saved > 0 ? ` · ${saved} done` : '')}
+          </button>
         </div>
 
         {needsParty && <PartyPicker c={c} kind={kind} value={partyId} onChange={setPartyId} />}
@@ -565,8 +573,9 @@ function TxnForm({ c, type, close }) {
 
         <div className="f">
           <label className="lbl">Amount{type === 'wastage' ? ' — value thrown' : ''}</label>
-          <input inputMode="decimal" autoFocus value={amount} placeholder="0"
+          <input ref={amountRef} inputMode="decimal" autoFocus value={amount} placeholder="0"
             onChange={(e) => setAmount(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && ok) save(); }}
             style={{ fontFamily: 'var(--mono)', fontSize: 26, padding: '16px 14px' }} />
         </div>
 
@@ -616,6 +625,7 @@ function SetupForm({ c, close }) {
   const [amount, setAmount] = useState('');
   const [remarks, setRemarks] = useState('');
   const [saved, setSaved] = useState(0);
+  const amtRef = useRef(null);
 
   const kinds = [
     ['opening_purchase', 'Opening purchase'],
@@ -633,6 +643,7 @@ function SetupForm({ c, close }) {
       amount: parseFloat(amount) || 0, mode: type === 'opening_purchase' ? 'credit' : 'cash', remarks,
     }, null, true);
     setSaved((n) => n + 1); setAmount(''); setRemarks('');
+    amtRef.current?.focus();
   };
 
   return (
@@ -642,6 +653,11 @@ function SetupForm({ c, close }) {
           <div><div className="brand" style={{ fontSize: 18 }}>Opening &amp; investment</div>
             <div className="sub">everything before {dshow(start)}</div></div>
           <button className="pill" onClick={close}>Close</button>
+        </div>
+
+        <div className="save-top">
+          <button className="btn" disabled={!(parseFloat(amount) > 0)} onClick={save}>
+            Save{saved > 0 ? ` · ${saved} done` : ''}</button>
         </div>
 
         <div className="warn" style={{ marginTop: 0 }}>
@@ -663,7 +679,9 @@ function SetupForm({ c, close }) {
             Add the lender under Books → Customers first if the name is not listed.</p>}
 
         <div className="f"><label className="lbl">Amount</label>
-          <input inputMode="decimal" value={amount} placeholder="0" onChange={(e) => setAmount(e.target.value)}
+          <input ref={amtRef} inputMode="decimal" autoFocus value={amount} placeholder="0"
+            onChange={(e) => setAmount(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && parseFloat(amount) > 0) save(); }}
             style={{ fontFamily: 'var(--mono)', fontSize: 26, padding: '16px 14px' }} /></div>
 
         <div className="f"><label className="lbl">Remarks</label>
@@ -684,10 +702,26 @@ function PartyForm({ c, close }) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [opening, setOpening] = useState('');
+  const [saved, setSaved] = useState(0);
+  const nameRef = useRef(null);
+
+  const save = async () => {
+    await c.run('party', { kind, name, phone, opening }, name.trim() + ' added', true);
+    setSaved((n) => n + 1); setName(''); setPhone(''); setOpening('');
+    nameRef.current?.focus();
+  };
+
   return (
     <div className="sheet" onClick={close}>
       <div className="sheetin" onClick={(e) => e.stopPropagation()}>
-        <div className="brand" style={{ fontSize: 18, marginBottom: 16 }}>New name</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <div className="brand" style={{ fontSize: 18 }}>New name</div>
+          <button className="pill" onClick={close}>Close</button>
+        </div>
+        <div className="save-top">
+          <button className="btn" disabled={!name.trim()} onClick={save}>
+            Add {kind}{saved > 0 ? ` · ${saved} done` : ''}</button>
+        </div>
         <div className="f"><label className="lbl">Type</label>
           <div className="tabs" style={{ padding: 0 }}>
             {['supplier', 'customer'].map((k) => (
@@ -695,16 +729,16 @@ function PartyForm({ c, close }) {
                 onClick={() => setKind(k)}>{k}</button>))}
           </div></div>
         <div className="f"><label className="lbl">Name</label>
-          <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. ABC Vegetables" /></div>
+          <input ref={nameRef} autoFocus value={name} onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && name.trim()) save(); }}
+            placeholder="e.g. ABC Vegetables" /></div>
         <div className="grid2">
           <div className="f"><label className="lbl">Phone</label>
             <input inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} /></div>
           <div className="f"><label className="lbl">Opening balance</label>
             <input inputMode="decimal" value={opening} onChange={(e) => setOpening(e.target.value)} placeholder="0" /></div>
         </div>
-        <button className="btn" disabled={!name.trim()}
-          onClick={() => c.run('party', { kind, name, phone, opening }, name.trim() + ' added')}>
-          Add {kind}</button>
+        <button className="btn ghost" onClick={close}>Done</button>
       </div>
     </div>
   );
@@ -716,6 +750,7 @@ function ItemForm({ c, close }) {
   const [q, setQ] = useState('');
   const [sec, setSec] = useState('all');
   const [saved, setSaved] = useState(0);
+  const nameRef = useRef(null);
 
   const set = (patch) => setF({ ...f, ...patch });
   const editing = f.id !== null;
@@ -739,6 +774,7 @@ function ItemForm({ c, close }) {
     else await c.run('item', payload, f.name + ' added', true);
     setSaved((n) => n + 1);
     setF(blank);
+    nameRef.current?.focus();
   };
 
   const margin = (() => {
@@ -755,10 +791,18 @@ function ItemForm({ c, close }) {
           <button className="pill" onClick={close}>Close</button>
         </div>
 
+        <div className="save-top">
+          <button className="btn" disabled={!f.name.trim()} onClick={save}>
+            {editing ? 'Save changes' : 'Add item'}{saved > 0 && !editing ? ` · ${saved} done` : ''}
+          </button>
+        </div>
+
         {/* the form */}
         <div className="card" style={{ marginTop: 0, borderColor: editing ? 'var(--mango)' : 'var(--line)' }}>
           <div className="f"><label className="lbl">{editing ? 'Name' : 'New item name'}</label>
-            <input value={f.name} onChange={(e) => set({ name: e.target.value })} placeholder="e.g. Tomato" /></div>
+            <input ref={nameRef} autoFocus value={f.name} onChange={(e) => set({ name: e.target.value })}
+              onKeyDown={(e) => { if (e.key === 'Enter' && f.name.trim()) save(); }}
+              placeholder="e.g. Tomato" /></div>
 
           <div className="f"><label className="lbl">Section</label>
             <div className="tabs" style={{ padding: 0 }}>
@@ -979,6 +1023,7 @@ function ItemBill({ c, kind, close }) {
   const [partyId, setPartyId] = useState('');
   const [mode, setMode] = useState(kind === 'sale' ? 'cash' : 'credit');
   const [busy, setBusy] = useState(false);
+  const qtyRef = useRef(null);
 
   const total = cart.reduce((a, l) => a + l.qty * l.rate, 0);
   const rateOf = (it) => Number(kind === 'sale' ? it.sale_rate : it.cost_rate) || 0;
@@ -1092,7 +1137,7 @@ function ItemBill({ c, kind, close }) {
             )}
             <div className="f">
               <label className="lbl">Quantity in {item.unit}</label>
-              <input inputMode="decimal" autoFocus value={qty} placeholder="0"
+              <input ref={qtyRef} inputMode="decimal" autoFocus value={qty} placeholder="0"
                 onChange={(e) => setQty(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && addLine()}
                 style={{ fontFamily: 'var(--mono)', fontSize: 32, padding: '18px 14px' }} />
