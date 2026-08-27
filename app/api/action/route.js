@@ -175,6 +175,21 @@ export async function POST(req) {
         return ok();
       }
 
+      case 'itemUpdate': {
+        if (me.role === 'BILLING') return bad('Billing staff cannot change items.');
+        const nm = String(payload.name || '').trim();
+        if (!nm) return bad('Item name is needed.');
+        await sql`
+          UPDATE items SET name = ${nm}, unit = ${payload.unit || 'kg'},
+            category = ${payload.category || 'vegetables'},
+            sale_rate = ${Number(payload.saleRate) || 0},
+            cost_rate = ${Number(payload.costRate) || 0},
+            supplier_id = ${payload.supplierId || null}
+          WHERE id = ${payload.id}`;
+        await log(me.name, `Updated item ${nm} — sell ${money(payload.saleRate || 0)}`);
+        return ok();
+      }
+
       case 'removeItem': {
         if (me.role === 'BILLING') return bad('Billing staff cannot remove items.');
         await sql`UPDATE items SET is_active = false WHERE id = ${payload.id}`;
