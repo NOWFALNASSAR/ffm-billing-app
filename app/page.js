@@ -192,7 +192,7 @@ export default function Page() {
       <header className="bar">
         <div style={{ flex: 1 }}>
           <div className="brand">{settings.shop_name}</div>
-          <div className="sub">{me.role.toLowerCase()} · {me.name} · v21.1</div>
+          <div className="sub">{me.role.toLowerCase()} · {me.name} · v22</div>
         </div>
         {me.role === 'BILLING'
           ? <div className="pill" style={{ padding: '9px 12px' }}>{dshow(date)} · today only</div>
@@ -711,48 +711,127 @@ function PartyForm({ c, close }) {
 }
 
 function ItemForm({ c, close }) {
-  const [name, setName] = useState('');
-  const [unit, setUnit] = useState('kg');
-  const [category, setCategory] = useState('vegetables');
-  const [saleRate, setSaleRate] = useState('');
-  const [costRate, setCostRate] = useState('');
-  const [supplierId, setSupplierId] = useState('');
+  const blank = { id: null, name: '', unit: 'kg', category: 'vegetables', saleRate: '', costRate: '', supplierId: '' };
+  const [f, setF] = useState(blank);
+  const [q, setQ] = useState('');
+  const [sec, setSec] = useState('all');
   const [saved, setSaved] = useState(0);
+
+  const set = (patch) => setF({ ...f, ...patch });
+  const editing = f.id !== null;
+
+  const list = c.items
+    .filter((i) => sec === 'all' || (i.category || 'vegetables') === sec)
+    .filter((i) => !q.trim() || i.name.toLowerCase().includes(q.trim().toLowerCase()));
+
+  const load = (it) => setF({
+    id: it.id, name: it.name, unit: it.unit, category: it.category || 'vegetables',
+    saleRate: String(Number(it.sale_rate) || ''), costRate: String(Number(it.cost_rate) || ''),
+    supplierId: it.supplier_id || '',
+  });
+
   const save = async () => {
-    await c.run('item', { name, unit, category, saleRate, costRate, supplierId: Number(supplierId) || null }, null, true);
-    setSaved((n) => n + 1); setName(''); setSaleRate(''); setCostRate('');
+    const payload = {
+      name: f.name, unit: f.unit, category: f.category,
+      saleRate: f.saleRate, costRate: f.costRate, supplierId: Number(f.supplierId) || null,
+    };
+    if (editing) await c.run('itemUpdate', { ...payload, id: f.id }, f.name + ' updated', true);
+    else await c.run('item', payload, f.name + ' added', true);
+    setSaved((n) => n + 1);
+    setF(blank);
   };
+
+  const margin = (() => {
+    const sr = parseFloat(f.saleRate), cr = parseFloat(f.costRate);
+    return sr > 0 && cr > 0 ? ((sr - cr) / sr) * 100 : null;
+  })();
+
   return (
     <div className="sheet" onClick={close}>
       <div className="sheetin" onClick={(e) => e.stopPropagation()}>
-        <div className="brand" style={{ fontSize: 18, marginBottom: 14 }}>Add item</div>
-        <p className="k" style={{ marginBottom: 14 }}>
-          Just the names you stock — no quantities. This is what the shortage order list is built from.
-        </p>
-        <div className="f"><label className="lbl">Item name</label>
-          <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Tomato" /></div>
-        <div className="f"><label className="lbl">Section</label>
-          <div className="tabs" style={{ padding: 0 }}>
-            {SECTIONS.map(([k, l]) => (
-              <button key={k} type="button" className={'tab' + (category === k ? ' on' : '')}
-                onClick={() => setCategory(k)}>{l}</button>))}
-          </div></div>
-        <div className="f"><label className="lbl">Unit</label>
-          <div className="tabs" style={{ padding: 0 }}>
-            {['kg', 'box', 'bag', 'piece', 'bunch'].map((u) => (
-              <button key={u} type="button" className={'tab' + (unit === u ? ' on' : '')}
-                onClick={() => setUnit(u)}>{u}</button>))}
-          </div></div>
-        <div className="grid2">
-          <div className="f"><label className="lbl">Selling rate</label>
-            <input inputMode="decimal" value={saleRate} onChange={(e) => setSaleRate(e.target.value)} placeholder="0" /></div>
-          <div className="f"><label className="lbl">Cost rate</label>
-            <input inputMode="decimal" value={costRate} onChange={(e) => setCostRate(e.target.value)} placeholder="0" /></div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <div><div className="brand" style={{ fontSize: 18 }}>{editing ? 'Edit item' : 'Items'}</div>
+            <div className="sub">{c.items.length} items · tap one to change its rate</div></div>
+          <button className="pill" onClick={close}>Close</button>
         </div>
-        <PartyPicker c={c} kind="supplier" value={supplierId} onChange={setSupplierId} />
-        <button className="btn" disabled={!name.trim()} onClick={save}>Save and add another</button>
-        {saved > 0 && <p className="k" style={{ textAlign: 'center', marginTop: 12 }}>{saved} items added</p>}
-        <button className="btn ghost" style={{ marginTop: 10 }} onClick={close}>Done</button>
+
+        {/* the form */}
+        <div className="card" style={{ marginTop: 0, borderColor: editing ? 'var(--mango)' : 'var(--line)' }}>
+          <div className="f"><label className="lbl">{editing ? 'Name' : 'New item name'}</label>
+            <input value={f.name} onChange={(e) => set({ name: e.target.value })} placeholder="e.g. Tomato" /></div>
+
+          <div className="f"><label className="lbl">Section</label>
+            <div className="tabs" style={{ padding: 0 }}>
+              {SECTIONS.map(([k, l]) => (
+                <button key={k} type="button" className={'tab' + (f.category === k ? ' on' : '')}
+                  onClick={() => set({ category: k })}>{l}</button>))}
+            </div></div>
+
+          <div className="f"><label className="lbl">Unit</label>
+            <div className="tabs" style={{ padding: 0 }}>
+              {['kg', 'box', 'bag', 'piece', 'bunch'].map((u) => (
+                <button key={u} type="button" className={'tab' + (f.unit === u ? ' on' : '')}
+                  onClick={() => set({ unit: u })}>{u}</button>))}
+            </div></div>
+
+          <div className="grid2">
+            <div className="f"><label className="lbl">Selling rate</label>
+              <input inputMode="decimal" value={f.saleRate} onChange={(e) => set({ saleRate: e.target.value })}
+                placeholder="0" style={{ fontFamily: 'var(--mono)', fontSize: 18 }} /></div>
+            <div className="f"><label className="lbl">Cost rate</label>
+              <input inputMode="decimal" value={f.costRate} onChange={(e) => set({ costRate: e.target.value })}
+                placeholder="0" style={{ fontFamily: 'var(--mono)', fontSize: 18 }} /></div>
+          </div>
+          {margin !== null && (
+            <p className="k" style={{ marginTop: -6, marginBottom: 12 }}>
+              Margin {margin.toFixed(1)}% · ₹{(parseFloat(f.saleRate) - parseFloat(f.costRate)).toFixed(2)} per {f.unit}
+            </p>
+          )}
+
+          <PartyPicker c={c} kind="supplier" value={f.supplierId} onChange={(v) => set({ supplierId: v })} />
+
+          <button className="btn" disabled={!f.name.trim()} onClick={save}>
+            {editing ? 'Save changes' : 'Add item'}</button>
+          {editing && (
+            <button className="btn ghost" style={{ marginTop: 10 }} onClick={() => setF(blank)}>
+              Cancel — add a new one instead</button>
+          )}
+          {saved > 0 && !editing && <p className="k" style={{ textAlign: 'center', marginTop: 10 }}>{saved} saved</p>}
+        </div>
+
+        {/* the list */}
+        <div className="card">
+          <span className="lbl">All items</span>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search item name" />
+          <div className="tabs">
+            {[['all', 'All'], ...SECTIONS].map(([k, l]) => (
+              <button key={k} className={'tab' + (sec === k ? ' on' : '')} onClick={() => setSec(k)}>{l}</button>))}
+          </div>
+          {list.length === 0
+            ? <p className="empty">No items here yet.</p>
+            : list.map((it) => {
+              const sr = Number(it.sale_rate), cr = Number(it.cost_rate);
+              const m = sr > 0 && cr > 0 ? ((sr - cr) / sr) * 100 : null;
+              return (
+                <div className="item" key={it.id}>
+                  <button style={{ textAlign: 'left', flex: 1 }} onClick={() => load(it)}>
+                    <b style={{ fontSize: 15, color: f.id === it.id ? 'var(--mango)' : 'inherit' }}>{it.name}</b>
+                    <small>{it.category || 'vegetables'} · per {it.unit} · cost {money(cr)} → sell {money(sr)}
+                      {m !== null ? ` · ${m.toFixed(0)}%` : ''}</small>
+                  </button>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="pill" onClick={() => load(it)}>edit</button>
+                    {c.me.role !== 'BILLING' && (
+                      <button className="pill" onClick={() => {
+                        if (window.confirm(`Remove ${it.name}? Past bills keep it.`))
+                          c.run('removeItem', { id: it.id }, 'Item removed', true);
+                      }}>×</button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+        </div>
       </div>
     </div>
   );
@@ -1439,7 +1518,7 @@ function Books(c) {
                   <small>{i.category || 'vegetables'} · {i.unit} · sell {money(i.sale_rate)} · cost {money(i.cost_rate)}
                     {sup ? ' · ' + sup.name : ''}</small></div>
                 {c.me.role !== 'BILLING' &&
-                  <button className="pill" onClick={() => c.run('removeItem', { id: i.id }, 'Item removed')}>remove</button>}
+                  <button className="pill" onClick={() => c.setSheet('item')}>edit rates</button>}
               </div>
             );
           })}
